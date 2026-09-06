@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spremljanje gladine morja - Slovenija</title>
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Spremljajte dejansko in napovedano gladino morja v Koper - kapitanija. Vsebuje primerjalne grafe, temperature in podrobne vremenske pogoje.">
+    <meta name="keywords" content="plimovanje, gladina morja, arso, koper, plima, oseka, morje slovenija, temperatura morja">
+    <meta name="author" content="Matej">
+    
+    <!-- Google Fonts & Iconography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- CSS Stylesheet -->
+    <link rel="stylesheet" href="index.css?v=54">
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Highcharts Stock Library -->
+    <script src="https://code.highcharts.com/stock/highstock.js"></script>
+    <script src="https://code.highcharts.com/modules/exporting.js"></script>
+    <script src="https://code.highcharts.com/modules/accessibility.js"></script>
+</head>
+<body class="light-theme">
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="brand">
+                <i class="fa-solid fa-water wave-icon"></i>
+                <div class="brand-text">
+                    <h1>Plimovanje Koper</h1>
+                    <p>Merilna postaja: Koper - kapitanija</p>
+                </div>
+            </div>
+            <div class="time-widget" style="display: flex; align-items: center; gap: 0.75rem;">
+                <button class="theme-toggle-btn" id="theme-toggle-btn" onclick="toggleTheme()" title="Svetel/Temni način" style="background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 1.1rem; display: flex; align-items: center; justify-content: center; transition: color 0.2s; padding: 0.25rem;">
+                    <i class="fa-solid fa-sun" id="theme-icon-indicator"></i>
+                </button>
+                <div style="width: 1px; height: 16px; background: rgba(255, 255, 255, 0.1);" id="theme-divider"></div>
+                <i class="fa-regular fa-clock"></i>
+                <span id="current-time-display">Nalaganje...</span>
+            </div>
+        </header>
+
+        <!-- Top Main 3-Tab Navigation Bar -->
+        <nav class="main-tabs-nav" id="main-tab-bar">
+            <button class="main-tab-btn active" id="btn-tab-tides" onclick="setActiveMainTab('plimovanje')">
+                <i class="fa-solid fa-water"></i>
+                <span>Plimovanje</span>
+            </button>
+            <button class="main-tab-btn" id="btn-tab-weather" onclick="setActiveMainTab('vreme')">
+                <i class="fa-solid fa-cloud-sun"></i>
+                <span>Vreme</span>
+            </button>
+            <button class="main-tab-btn" id="btn-tab-nav" onclick="setActiveMainTab('navigacija')">
+                <i class="fa-solid fa-location-arrow"></i>
+                <span>Navigacija</span>
+            </button>
+        </nav>
+
+        <!-- TAB 1: PLIMOVANJE -->
+        <div class="main-tab-pane active" id="pane-tides">
+            <!-- Warning Banner -->
+            <div id="warning-banner-container"></div>
+
+            <!-- Current Conditions Dashboard -->
+            <section class="dashboard-grid">
+                <!-- Card 1: Sea Level -->
+                <div class="dashboard-card" id="card-sea-level" style="display: flex; justify-content: space-between; align-items: stretch; position: relative;">
+                    <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
+                        <div>
+                            <div class="card-header">
+                                <span class="card-title">Gladina morja</span>
+                                <i class="fa-solid fa-arrows-up-down card-icon level-color"></i>
+                            </div>
+                            <div class="card-value-wrapper">
+                                <span class="card-value" id="current-level-val">--</span>
+                                <span class="card-unit">cm</span>
+                                <span id="level-trend-badge" class="trend-badge">--</span>
+                            </div>
+                        </div>
+                        <div class="card-subtitle" style="display: flex; flex-direction: column; gap: 0.2rem; margin-top: 10px;">
+                            <span id="level-time-val" style="font-size: 0.95rem; font-weight: 500; color: var(--text-primary);">Meritev ARSO ob: Nalaganje...</span>
+                            <span id="relative-level-val" style="font-size: 0.8rem; color: var(--text-secondary);">Absolutna gladina: Nalaganje...</span>
+                        </div>
+                    </div>
+                    <!-- Visual Water Level Gauge -->
+                    <div class="water-gauge-container" style="display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 4px 0 0 0; width: 32px; margin-left: 10px;">
+                        <div style="position: relative; width: 12px; height: 75px; margin: 0 auto;">
+                            <!-- Track -->
+                            <div class="water-gauge-track" style="width: 100%; height: 100%; background: rgba(148, 163, 184, 0.15); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 6px; overflow: hidden; position: relative;">
+                                <!-- Fill bar -->
+                                <div id="water-gauge-fill" style="position: absolute; bottom: 0; left: 0; right: 0; height: 0%; background: #22c55e; transition: height 0.5s ease, background-color 0.5s ease;"></div>
+                            </div>
+                            <!-- Pointer -->
+                            <div id="water-gauge-pointer" style="position: absolute; left: -8px; bottom: 0%; width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 6px solid var(--text-primary); transform: translateY(4px); transition: bottom 0.5s ease, border-left-color 0.5s ease; z-index: 10;"></div>
+                        </div>
+                        <span style="font-size: 0.62rem; color: var(--text-secondary); margin-top: 4px; font-weight: 700; letter-spacing: 0.5px;">G.M.</span>
+                    </div>
+                </div>
+
+                <!-- Card 2: Next High Tide -->
+                <div class="dashboard-card" id="card-high-tide">
+                    <div class="card-header">
+                        <span class="card-title">Naslednja plima (visoka)</span>
+                        <i class="fa-solid fa-chevron-up card-icon high-color"></i>
+                    </div>
+                    <div class="card-value-wrapper">
+                        <span class="card-value" id="next-high-time">--:--</span>
+                    </div>
+                    <div class="card-subtitle" id="next-high-height">
+                        Višina: -- cm
+                    </div>
+                </div>
+
+                <!-- Card 3: Next Low Tide -->
+                <div class="dashboard-card" id="card-low-tide">
+                    <div class="card-header">
+                        <span class="card-title">Naslednja oseka (nizka)</span>
+                        <i class="fa-solid fa-chevron-down card-icon low-color"></i>
+                    </div>
+                    <div class="card-value-wrapper">
+                        <span class="card-value" id="next-low-time">--:--</span>
+                    </div>
+                    <div class="card-subtitle" id="next-low-height">
+                        Višina: -- cm
+                    </div>
+                </div>
+
+                <!-- Card 4: Sea Temp -->
+                <div class="dashboard-card" id="card-sea-temp">
+                    <div class="card-header">
+                        <span class="card-title">Temperatura morja</span>
+                        <i class="fa-solid fa-temperature-half card-icon temp-color"></i>
+                    </div>
+                    <div class="card-value-wrapper">
+                        <span class="card-value" id="current-temp-val">--</span>
+                        <span class="card-unit">°C</span>
+                    </div>
+                    <div class="card-subtitle">
+                        ARSO - kapitanija
+                    </div>
+                </div>
+            </section>
+
+            <!-- Main Interactive Chart Card -->
+            <main class="chart-container-card" style="width: 100%;">
+                <button class="fullscreen-btn" id="fullscreen-btn" onclick="toggleFullscreen()" title="Celozaslonski način">
+                    <i class="fa-solid fa-expand"></i>
+                </button>
+                <div class="chart-header">
+                    <div class="chart-modes">
+                        <button class="mode-btn active" id="mode-level" onclick="setChartMode('level')">
+                            <i class="fa-solid fa-chart-area"></i> Gladina morja
+                        </button>
+                        <button class="mode-btn" id="mode-temp" onclick="setChartMode('temp')">
+                            <i class="fa-solid fa-chart-line"></i> Temperatura morja
+                        </button>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <div class="chart-periods">
+                            <button class="period-btn active" id="period-24h" onclick="setPeriod(24)">24 ur</button>
+                            <button class="period-btn" id="period-3d" onclick="setPeriod(72)">3 dni</button>
+                            <button class="period-btn" id="period-7d" onclick="setPeriod(168)">7 dni</button>
+                            <button class="period-btn" id="period-30d" onclick="setPeriod(720)">30 dni</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Chart Area -->
+                <div class="chart-wrapper">
+                    <div id="sea-level-chart" style="width: 100%; height: 100%;"></div>
+                </div>
+                
+                <!-- Info Footer -->
+                <div class="chart-info-footer">
+                    <p><i class="fa-solid fa-circle-info"></i> Dejanske meritve posreduje <strong>ARSO</strong>, napovedi pa so izračunane z astronomskim modelom <strong>NIB MBP</strong>.</p>
+                </div>
+            </main>
+        </div>
+
+        <!-- TAB 2: VREME -->
+        <div class="main-tab-pane" id="pane-weather" style="display: none;">
+            <div class="weather-page-layout">
+                <!-- Weather & Meteorological Card -->
+                <div class="sidebar-card weather-page-card" style="width: 100%;">
+                    <!-- Header with Title & Large Measurement Time -->
+                    <div class="weather-header-row" style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 14px;">
+                        <h2 style="margin: 0; font-size: 1.4rem; font-weight: 700; letter-spacing: -0.5px;">Vreme</h2>
+                        <span id="weather-time-badge" style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Meritev ob: --</span>
+                    </div>
+                    
+                    <!-- Location Tabs (Portorož / Piran) -->
+                    <div class="weather-tabs" style="display: flex; gap: 8px; margin-bottom: 20px; background: var(--border-color); padding: 5px; border-radius: 10px; max-width: 440px; width: 100%;">
+                        <button class="weather-tab-btn active" id="tab-portoroz" onclick="setWeatherSource('portoroz')" style="flex: 1; text-align: center; padding: 10px 12px; border: none; background: transparent; border-radius: 8px; color: var(--text-secondary); cursor: pointer; font-size: 0.92rem; font-weight: 700; transition: all 0.2s;">Letališče Portorož</button>
+                        <button class="weather-tab-btn" id="tab-vida" onclick="setWeatherSource('vida')" style="flex: 1; text-align: center; padding: 10px 12px; border: none; background: transparent; border-radius: 8px; color: var(--text-secondary); cursor: pointer; font-size: 0.92rem; font-weight: 700; transition: all 0.2s;">Piran (Boja Vida)</button>
+                    </div>
+
+                    <!-- Center Weather Icon, Condition Description & Main Temperature -->
+                    <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 20px; text-align: center; width: 100%;">
+                        <div id="current-weather-icon-box" style="font-size: 2.8rem; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; width: 76px; height: 76px; border-radius: 50%; border: 1px solid var(--border-color); background: var(--bg-hover);">
+                            <i class="fa-solid fa-sun" id="current-weather-icon"></i>
+                        </div>
+                        <div class="weather-desc-text" id="weather-desc-val" style="margin: 0; font-weight: 700; font-size: 1.25rem; text-transform: capitalize;">Nalaganje...</div>
+                    </div>
+
+                    <!-- Parameters list -->
+                    <div style="margin-bottom: 20px; width: 100%;">
+                        <ul class="met-list" style="margin: 0; padding: 0; list-style: none;">
+                            <li style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border-color);">
+                                <div class="met-item-label" style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 0.9rem;"><i class="fa-solid fa-temperature-half"></i> Temperatura zraka</div>
+                                <span class="met-item-value" id="current-air-temp-val" style="font-weight: 700; font-size: 1.35rem; color: var(--text-primary);">--°C</span>
+                            </li>
+                            <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
+                                <div class="met-item-label" style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);"><i class="fa-solid fa-temperature-arrow-up"></i> Občutek (feels-like)</div>
+                                <span class="met-item-value" id="current-feels-like-val" style="font-weight: 600;">Obč. --°C</span>
+                            </li>
+                            <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
+                                <div class="met-item-label" style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);"><i class="fa-solid fa-wind"></i> Hitrost vetra</div>
+                                <span class="met-item-value" id="wind-speed-val" style="font-weight: 600; text-align: right;">-- km/h</span>
+                            </li>
+                            <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
+                                <div class="met-item-label" style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);"><i class="fa-solid fa-compass"></i> Smer vetra</div>
+                                <span class="met-item-value" id="wind-dir-val" style="font-weight: 600;">--</span>
+                            </li>
+                            <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
+                                <div class="met-item-label" style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);"><i class="fa-solid fa-water"></i> Višina valov</div>
+                                <span class="met-item-value" id="wave-height-val" style="font-weight: 600;">-- m</span>
+                            </li>
+                            <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
+                                <div class="met-item-label" style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);"><i class="fa-solid fa-gauge-high"></i> Zračni tlak</div>
+                                <span class="met-item-value" id="air-pressure-val" style="font-weight: 600;">-- hPa</span>
+                            </li>
+                            <li style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0;">
+                                <div class="met-item-label" style="display: flex; align-items: center; gap: 8px; color: var(--text-secondary);"><i class="fa-solid fa-droplet"></i> Vlažnost zraka</div>
+                                <span class="met-item-value" id="humidity-val" style="font-weight: 600;">-- %</span>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- Vremenska napoved (3 dni + urni/3-urni trak) -->
+                    <div class="forecast-section" style="margin-bottom: 24px;">
+                        <h3 id="forecast-section-title" style="margin: 0 0 12px 0; font-size: 1.12rem; font-weight: 700;">Vremenska napoved Letališče Portorož (ARSO ALADIN)</h3>
+                        <div class="forecast-container" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; width: 100%;">
+                            <!-- Danes -->
+                            <div class="forecast-day-card today-card" id="forecast-card-0" onclick="toggleHourlyForecast(0)">
+                                <span class="forecast-day-name">Danes</span>
+                                <div class="weather-icon-box" id="weather-icon-box">
+                                    <i class="fa-solid fa-sun" id="weather-icon"></i>
+                                </div>
+                                <span class="forecast-temp" id="air-temp-val">--°C</span>
+                                <span class="forecast-wind" id="air-temp-feels-val">Obč. --</span>
+                                <div id="forecast-day-0-wave" style="margin-top: 3px; display: flex; align-items: center; justify-content: center;">--</div>
+                            </div>
+                            <!-- Jutri -->
+                            <div class="forecast-day-card" id="forecast-card-1" onclick="toggleHourlyForecast(1)">
+                                <span class="forecast-day-name" id="forecast-day-1-name">Jutri</span>
+                                <div class="weather-icon-box" id="forecast-day-1-icon-box">
+                                    <i class="fa-solid fa-sun" id="forecast-day-1-icon"></i>
+                                </div>
+                                <span class="forecast-temp" id="forecast-day-1-temp">-- / -- °C</span>
+                                <span class="forecast-wind" id="forecast-day-1-wind">-- km/h</span>
+                                <div id="forecast-day-1-wave" style="margin-top: 3px; display: flex; align-items: center; justify-content: center;">--</div>
+                            </div>
+                            <!-- Pojutrišnjem -->
+                            <div class="forecast-day-card" id="forecast-card-2" onclick="toggleHourlyForecast(2)">
+                                <span class="forecast-day-name" id="forecast-day-2-name">Pojutr.</span>
+                                <div class="weather-icon-box" id="forecast-day-2-icon-box">
+                                    <i class="fa-solid fa-cloud-sun" id="forecast-day-2-icon"></i>
+                                </div>
+                                <span class="forecast-temp" id="forecast-day-2-temp">-- / -- °C</span>
+                                <span class="forecast-wind" id="forecast-day-2-wind">-- km/h</span>
+                                <div id="forecast-day-2-wave" style="margin-top: 3px; display: flex; align-items: center; justify-content: center;">--</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Detailed sliding hourly forecast widget -->
+                        <div class="hourly-forecast-panel" id="hourly-forecast-panel" style="display: none; margin-top: 1.25rem; width: 100%;">
+                            <div class="hourly-forecast-title" id="hourly-forecast-title">Podrobna napoved za danes</div>
+                            <div class="hourly-scroll-container" id="hourly-scroll-container">
+                                <!-- Populated dynamically via JS -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sonce in Lunina mena (Prestavljeno v zavihek Vreme) -->
+                    <div class="sun-moon-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+                        <!-- Sun times -->
+                        <div class="sun-times" style="margin-top: 0; width: 100%;">
+                            <div class="sun-time-box">
+                                <i class="fa-solid fa-sun-up sunrise-color"></i>
+                                <div>
+                                    <span>Sončni vzhod</span>
+                                    <span id="sunrise-time">--:--</span>
+                                </div>
+                            </div>
+                            <div class="sun-time-box">
+                                <i class="fa-solid fa-sun-down sunset-color"></i>
+                                <div>
+                                    <span>Sončni zahod</span>
+                                    <span id="sunset-time">--:--</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Moon widget -->
+                        <div class="moon-widget" style="margin: 0; width: 100%;">
+                            <div class="moon-header">
+                                <span>Lunina mena</span>
+                                <i class="fa-solid fa-moon"></i>
+                            </div>
+                            <div class="moon-content">
+                                <div class="moon-icon-box" id="moon-icon-box">
+                                    <canvas id="moon-canvas" width="46" height="46" style="display: block;"></canvas>
+                                </div>
+                                <div class="moon-details">
+                                    <span class="moon-name" id="moon-phase-name">Nalaganje...</span>
+                                    <span class="moon-coeff" id="moon-coeff-val">Koeficient: --</span>
+                                    <span class="moon-next" id="moon-next-phase" style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 4px; display: block; font-weight: 500;">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Douglas Sea Scale Legend (Collapsible) -->
+                    <div class="sea-legend-wrapper" style="border-top: 1px solid var(--border-color); padding-top: 0.75rem;">
+                        <button type="button" class="sea-legend-toggle" onclick="toggleSeaLegend()" style="background: none; border: none; padding: 0; color: var(--text-secondary); font-size: 0.75rem; cursor: pointer; display: flex; align-items: center; justify-content: space-between; width: 100%; font-weight: 600;">
+                            <span style="display: flex; align-items: center; gap: 6px;">
+                                <i class="fa-solid fa-water" style="color: #38bdf8;"></i> Legenda valovanja morja (Douglas)
+                            </span>
+                            <i class="fa-solid fa-chevron-down" id="sea-legend-arrow" style="font-size: 0.7rem; transition: transform 0.2s;"></i>
+                        </button>
+                        <div id="sea-legend-content" style="display: none; margin-top: 0.75rem; font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4;">
+                            <div style="display: grid; grid-template-columns: auto 1fr auto; gap: 6px 10px; align-items: center; background: var(--bg-hover); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-color);">
+                                <span style="color: #22c55e; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                                    <svg style="width:13px;height:8px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;" viewBox="0 0 24 12"><path d="M0 6 Q6 0, 12 6 T24 6"/></svg> 0-1
+                                </span>
+                                <span>Mirno do rahlo zibanje</span>
+                                <span style="font-weight: 600; text-align: right;">&lt; 0.1 m</span>
+                                
+                                <span style="color: #22c55e; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                                    <svg style="width:13px;height:8px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;" viewBox="0 0 24 12"><path d="M0 6 Q6 0, 12 6 T24 6"/></svg> 2
+                                </span>
+                                <span>Rahlo vzvalovano</span>
+                                <span style="font-weight: 600; text-align: right;">0.1 – 0.5 m</span>
+                                
+                                <span style="color: #38bdf8; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                                    <svg style="width:13px;height:10px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;" viewBox="0 0 24 16"><path d="M0 5 Q6 0, 12 5 T24 5 M0 11 Q6 6, 12 11 T24 11"/></svg> 3
+                                </span>
+                                <span>Zmerno vzvalovano</span>
+                                <span style="font-weight: 600; text-align: right;">0.5 – 1.25 m</span>
+                                
+                                <span style="color: #f59e0b; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                                    <svg style="width:13px;height:12px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;" viewBox="0 0 24 20"><path d="M0 4 Q6 -2, 12 4 T24 4 M0 10 Q6 4, 12 10 T24 10 M0 16 Q6 10, 12 16 T24 16"/></svg> 4
+                                </span>
+                                <span>Vzvalovano morje</span>
+                                <span style="font-weight: 600; text-align: right;">1.25 – 2.5 m</span>
+                                
+                                <span style="color: #ef4444; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+                                    <i class="fa-solid fa-triangle-exclamation" style="font-size:0.65rem;"></i> 5+
+                                </span>
+                                <span>Močno do viharno morje</span>
+                                <span style="font-weight: 600; text-align: right;">&gt; 2.5 m</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: NAVIGACIJA (GPS ŠTEVEC) -->
+        <div class="main-tab-pane" id="pane-navigation" style="display: none;">
+            <div class="nav-dashboard-container">
+                <!-- GPS Status Bar -->
+                <div class="nav-status-banner" id="nav-status-banner">
+                    <i class="fa-solid fa-satellite-dish" id="nav-gps-icon"></i>
+                    <span id="nav-status-text">Iskanje GPS signala...</span>
+                </div>
+
+                <!-- Prikazovalnik 1: Hitrost plovbe (SOG do 20 vozlov) -->
+                <div class="gauge-card">
+                    <div class="gauge-card-header">
+                        <span class="gauge-card-title"><i class="fa-solid fa-gauge-high"></i> Hitrost plovbe (SOG)</span>
+                    </div>
+                    <div class="gauge-display-box">
+                        <svg viewBox="0 0 260 260" class="marine-gauge-svg">
+                            <defs>
+                                <linearGradient id="speedArcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stop-color="#0ea5e9"/>
+                                    <stop offset="65%" stop-color="#22c55e"/>
+                                    <stop offset="100%" stop-color="#f59e0b"/>
+                                </linearGradient>
+                                <filter id="gaugeGlow" x="-20%" y="-20%" width="140%" height="140%">
+                                    <feGaussianBlur stdDeviation="3" result="blur" />
+                                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                                </filter>
+                            </defs>
+                            <!-- Background track arc (270 deg from 135 to 405) -->
+                            <path d="M 62.8 197.2 A 95 95 0 1 1 197.2 197.2" fill="none" stroke="var(--border-color)" stroke-width="8" stroke-linecap="round"/>
+                            <!-- Active Speed Arc Fill -->
+                            <path id="speed-gauge-arc" d="M 62.8 197.2 A 95 95 0 1 1 197.2 197.2" fill="none" stroke="url(#speedArcGrad)" stroke-width="8" stroke-linecap="round" stroke-dasharray="447.67" stroke-dashoffset="447.67" style="transition: stroke-dashoffset 0.4s ease-out;"/>
+                            
+                            <!-- Scale Ticks (Every 1 knot) -->
+                            <g class="gauge-ticks" stroke="var(--text-secondary)">
+                                <line x1='62.8' y1='197.2' x2='70.6' y2='189.4' stroke-width='2.5' opacity='0.9'/>
+                                <line x1='49' y1='179.6' x2='54.1' y2='176.5' stroke-width='1.2' opacity='0.5'/>
+                                <line x1='39.6' y1='159.4' x2='50.1' y2='156' stroke-width='2.5' opacity='0.9'/>
+                                <line x1='35.3' y1='137.5' x2='41.3' y2='137' stroke-width='1.2' opacity='0.5'/>
+                                <line x1='36.2' y1='115.1' x2='47' y2='116.9' stroke-width='2.5' opacity='0.9'/>
+                                <line x1='42.2' y1='93.6' x2='47.8' y2='95.9' stroke-width='1.2' opacity='0.5'/>
+                                <line x1='53.1' y1='74.2' x2='62' y2='80.6' stroke-width='2.5' opacity='0.9'/>
+                                <line x1='68.3' y1='57.8' x2='72.2' y2='62.3' stroke-width='1.2' opacity='0.5'/>
+                                <line x1='86.9' y1='45.4' x2='91.9' y2='55.2' stroke-width='2.5' opacity='0.9'/>
+                                <line x1='107.8' y1='37.6' x2='109.2' y2='43.5' stroke-width='1.2' opacity='0.5'/>
+                                <line x1='130' y1='35' x2='130' y2='46' stroke-width='2.5' opacity='0.9'/>
+                                <line x1='152.2' y1='37.6' x2='150.8' y2='43.5' stroke-width='1.2' opacity='0.5'/>
+                                <line x1='173.1' y1='45.4' x2='168.1' y2='55.2' stroke-width='2.5' opacity='0.9'/>
+                                <line x1='191.7' y1='57.8' x2='187.8' y2='62.3' stroke-width='1.2' opacity='0.5'/>
+                                <line x1='206.9' y1='74.2' x2='198' y2='80.6' stroke-width='2.5' opacity='0.9'/>
+                                <line x1='217.8' y1='93.6' x2='212.2' y2='95.9' stroke-width='1.2' opacity='0.5'/>
+                                <line x1='223.8' y1='115.1' x2='213' y2='116.9' stroke-width='2.5' opacity='0.9'/>
+                                <line x1='224.7' y1='137.5' x2='218.7' y2='137' stroke-width='1.2' opacity='0.5'/>
+                                <line x1='220.4' y1='159.4' x2='209.9' y2='156' stroke-width='2.5' opacity='0.9'/>
+                                <line x1='211' y1='179.6' x2='205.9' y2='176.5' stroke-width='1.2' opacity='0.5'/>
+                                <line x1='197.2' y1='197.2' x2='189.4' y2='189.4' stroke-width='2.5' opacity='0.9'/>
+                            </g>
+
+                            <!-- Number Labels (Every 2 knots: 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20) -->
+                            <g class="gauge-labels" fill="var(--text-secondary)" font-family="var(--font-heading)" font-size="11" font-weight="700">
+                                <text x='80.5' y='179.5' text-anchor='middle' dominant-baseline='central'>0</text>
+                                <text x='63.4' y='151.6' text-anchor='middle' dominant-baseline='central'>2</text>
+                                <text x='60.9' y='119' text-anchor='middle' dominant-baseline='central'>4</text>
+                                <text x='73.4' y='88.9' text-anchor='middle' dominant-baseline='central'>6</text>
+                                <text x='98.2' y='67.6' text-anchor='middle' dominant-baseline='central'>8</text>
+                                <text x='130' y='60' text-anchor='middle' dominant-baseline='central'>10</text>
+                                <text x='161.8' y='67.6' text-anchor='middle' dominant-baseline='central'>12</text>
+                                <text x='186.6' y='88.9' text-anchor='middle' dominant-baseline='central'>14</text>
+                                <text x='199.1' y='119' text-anchor='middle' dominant-baseline='central'>16</text>
+                                <text x='196.6' y='151.6' text-anchor='middle' dominant-baseline='central'>18</text>
+                                <text x='179.5' y='179.5' text-anchor='middle' dominant-baseline='central'>20</text>
+                            </g>
+
+                            <!-- Rotating Needle -->
+                            <g id="speed-needle-group" style="transform-origin: 130px 130px; transform: rotate(-135deg); transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);">
+                                <line x1="130" y1="130" x2="130" y2="48" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" filter="url(#gaugeGlow)"/>
+                                <circle cx="130" cy="130" r="6" fill="#38bdf8"/>
+                                <circle cx="130" cy="130" r="3" fill="#ffffff"/>
+                            </g>
+                        </svg>
+
+                        <!-- Digital Readout -->
+                        <div class="gauge-center-content">
+                            <div class="gauge-center-val" id="nav-speed-knots">0.0</div>
+                            <div class="gauge-center-unit">VOZLOV (kt)</div>
+                            <div class="gauge-center-sub" id="nav-speed-kmh">0.0 km/h</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Prikazovalnik 2: Smer plovbe (COG / Kompas) -->
+                <div class="gauge-card">
+                    <div class="gauge-card-header">
+                        <span class="gauge-card-title"><i class="fa-solid fa-compass"></i> Smer plovbe (COG)</span>
+                    </div>
+                    <div class="gauge-display-box">
+                        <svg viewBox="0 0 260 260" class="marine-gauge-svg">
+                            <!-- Compass Outer Ring -->
+                            <circle cx="130" cy="130" r="95" fill="none" stroke="var(--border-color)" stroke-width="2"/>
+                            
+                            <!-- Degree Ticks -->
+                            <g class="gauge-ticks" stroke="var(--text-secondary)">
+                                <g stroke-width="2" opacity="0.9">
+                                    <line x1="130" y1="35" x2="130" y2="47" stroke="#ef4444" stroke-width="3"/>
+                                    <line x1="197.2" y1="62.8" x2="188.7" y2="71.3"/>
+                                    <line x1="225" y1="130" x2="213" y2="130"/>
+                                    <line x1="197.2" y1="197.2" x2="188.7" y2="188.7"/>
+                                    <line x1="130" y1="225" x2="130" y2="213"/>
+                                    <line x1="62.8" y1="197.2" x2="71.3" y2="188.7"/>
+                                    <line x1="35" y1="130" x2="47" y2="130"/>
+                                    <line x1="62.8" y1="62.8" x2="71.3" y2="71.3"/>
+                                </g>
+                                <g stroke-width="1.2" opacity="0.6">
+                                    <line x1="154.6" y1="38.2" x2="152.8" y2="45.1"/>
+                                    <line x1="177.5" y1="47.5" x2="174" y2="53.6"/>
+                                    <line x1="212.5" y1="82.5" x2="206.4" y2="86"/>
+                                    <line x1="221.8" y1="105.4" x2="214.9" y2="107.2"/>
+                                    <line x1="221.8" y1="154.6" x2="214.9" y2="152.8"/>
+                                    <line x1="212.5" y1="177.5" x2="206.4" y2="174"/>
+                                    <line x1="177.5" y1="212.5" x2="174" y2="206.4"/>
+                                    <line x1="154.6" y1="221.8" x2="152.8" y2="214.9"/>
+                                    <line x1="105.4" y1="221.8" x2="107.2" y2="214.9"/>
+                                    <line x1="82.5" y1="212.5" x2="86" y2="206.4"/>
+                                    <line x1="47.5" y1="177.5" x2="53.6" y2="174"/>
+                                    <line x1="38.2" y1="154.6" x2="45.1" y2="152.8"/>
+                                    <line x1="38.2" y1="105.4" x2="45.1" y2="107.2"/>
+                                    <line x1="47.5" y1="82.5" x2="53.6" y2="86"/>
+                                    <line x1="82.5" y1="47.5" x2="86" y2="53.6"/>
+                                    <line x1="105.4" y1="38.2" x2="107.2" y2="45.1"/>
+                                </g>
+                            </g>
+
+                            <!-- Degree Numbers every 30 deg -->
+                            <g class="gauge-labels" fill="var(--text-secondary)" font-family="var(--font-heading)" font-size="9" font-weight="600" opacity="0.75">
+                                <text x='130' y='58' text-anchor='middle' dominant-baseline='central'>0°</text>
+                                <text x='165' y='69.4' text-anchor='middle' dominant-baseline='central'>30°</text>
+                                <text x='190.6' y='95' text-anchor='middle' dominant-baseline='central'>60°</text>
+                                <text x='202' y='130' text-anchor='middle' dominant-baseline='central'>90°</text>
+                                <text x='190.6' y='165' text-anchor='middle' dominant-baseline='central'>120°</text>
+                                <text x='165' y='190.6' text-anchor='middle' dominant-baseline='central'>150°</text>
+                                <text x='130' y='202' text-anchor='middle' dominant-baseline='central'>180°</text>
+                                <text x='95' y='190.6' text-anchor='middle' dominant-baseline='central'>210°</text>
+                                <text x='69.4' y='165' text-anchor='middle' dominant-baseline='central'>240°</text>
+                                <text x='58' y='130' text-anchor='middle' dominant-baseline='central'>270°</text>
+                                <text x='69.4' y='95' text-anchor='middle' dominant-baseline='central'>300°</text>
+                                <text x='95' y='69.4' text-anchor='middle' dominant-baseline='central'>330°</text>
+                            </g>
+
+                            <!-- Cardinal Points -->
+                            <g font-family="var(--font-heading)" font-weight="800" font-size="13">
+                                <text x="130" y="74" text-anchor="middle" dominant-baseline="central" fill="#ef4444">S</text>
+                                <text x="170" y="90" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10">SV</text>
+                                <text x="186" y="130" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)">V</text>
+                                <text x="170" y="170" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10">JV</text>
+                                <text x="130" y="186" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)">J</text>
+                                <text x="90" y="170" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10">JZ</text>
+                                <text x="74" y="130" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)">Z</text>
+                                <text x="90" y="90" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10">SZ</text>
+                            </g>
+
+                            <!-- Dynamic Rotating Compass Heading Needle -->
+                            <g id="compass-needle-group" style="transform-origin: 130px 130px; transform: rotate(0deg); transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);">
+                                <polygon points="130,42 124,115 136,115" fill="#ef4444" filter="url(#gaugeGlow)"/>
+                                <polygon points="130,218 124,145 136,145" fill="var(--text-secondary)" opacity="0.6"/>
+                                <circle cx="130" cy="130" r="7" fill="var(--card-bg)" stroke="#ef4444" stroke-width="2"/>
+                                <circle cx="130" cy="130" r="3" fill="#ffffff"/>
+                            </g>
+                        </svg>
+
+                        <!-- Digital Readout -->
+                        <div class="gauge-center-content">
+                            <div class="gauge-center-val" id="nav-heading-deg">---°</div>
+                            <div class="gauge-center-unit" id="nav-heading-cardinal">MIRUJE</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Navtične koordinate -->
+                <div class="nav-coords-card">
+                    <div class="coord-box">
+                        <span class="coord-label"><i class="fa-solid fa-arrows-up-down"></i> ŠIRINA (LAT)</span>
+                        <span class="coord-val" id="nav-lat-val">--° --.---' N</span>
+                    </div>
+                    <div class="coord-box">
+                        <span class="coord-label"><i class="fa-solid fa-arrows-left-right"></i> DOLŽINA (LON)</span>
+                        <span class="coord-val" id="nav-lon-val">---° --.---' E</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PWA Install Banner -->
+        <div class="pwa-banner" id="pwa-install-banner" style="display: none; margin-top: 1rem;">
+            <div class="pwa-text">
+                <span class="pwa-title">Plimovanje Koper</span>
+                <span class="pwa-desc">Dodaj na domač zaslon</span>
+            </div>
+            <button class="pwa-btn" id="pwa-install-btn">Namesti</button>
+        </div>
+    </div>
+
+    <!-- Application Logic Scripts -->
+    <script src="Arcots.js?v=54"></script>
+    <script src="TideCalculator.js?v=54"></script>
+    <script src="index.js?v=54"></script>
+</body>
+</html>
