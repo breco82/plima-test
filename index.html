@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- CSS Stylesheet -->
-    <link rel="stylesheet" href="index.css?v=55">
+    <link rel="stylesheet" href="index.css?v=56">
     <link rel="manifest" href="manifest.json">
     
     <!-- Highcharts Stock Library -->
@@ -510,32 +510,32 @@
                                     </g>
                                 </g>
 
-                                <!-- Degree Numbers every 30 deg -->
-                                <g class="gauge-labels" fill="var(--text-secondary)" font-family="var(--font-heading)" font-size="9" font-weight="600" opacity="0.75">
-                                    <text x='130' y='58' text-anchor='middle' dominant-baseline='central'>0°</text>
-                                    <text x='165' y='69.4' text-anchor='middle' dominant-baseline='central'>30°</text>
-                                    <text x='190.6' y='95' text-anchor='middle' dominant-baseline='central'>60°</text>
-                                    <text x='202' y='130' text-anchor='middle' dominant-baseline='central'>90°</text>
-                                    <text x='190.6' y='165' text-anchor='middle' dominant-baseline='central'>120°</text>
-                                    <text x='165' y='190.6' text-anchor='middle' dominant-baseline='central'>150°</text>
-                                    <text x='130' y='202' text-anchor='middle' dominant-baseline='central'>180°</text>
-                                    <text x='95' y='190.6' text-anchor='middle' dominant-baseline='central'>210°</text>
-                                    <text x='69.4' y='165' text-anchor='middle' dominant-baseline='central'>240°</text>
-                                    <text x='58' y='130' text-anchor='middle' dominant-baseline='central'>270°</text>
-                                    <text x='69.4' y='95' text-anchor='middle' dominant-baseline='central'>300°</text>
-                                    <text x='95' y='69.4' text-anchor='middle' dominant-baseline='central'>330°</text>
+                                <!-- Degree Numbers radially aligned around circle -->
+                                <g class="gauge-labels" fill="var(--text-secondary)" font-family="var(--font-heading)" font-size="8.5" font-weight="600" opacity="0.8">
+                                    <text x="130" y="67" transform="rotate(0, 130, 130)" text-anchor="middle" dominant-baseline="central">0°</text>
+                                    <text x="130" y="67" transform="rotate(30, 130, 130)" text-anchor="middle" dominant-baseline="central">30°</text>
+                                    <text x="130" y="67" transform="rotate(60, 130, 130)" text-anchor="middle" dominant-baseline="central">60°</text>
+                                    <text x="130" y="67" transform="rotate(90, 130, 130)" text-anchor="middle" dominant-baseline="central">90°</text>
+                                    <text x="130" y="67" transform="rotate(120, 130, 130)" text-anchor="middle" dominant-baseline="central">120°</text>
+                                    <text x="130" y="67" transform="rotate(150, 130, 130)" text-anchor="middle" dominant-baseline="central">150°</text>
+                                    <text x="130" y="67" transform="rotate(180, 130, 130)" text-anchor="middle" dominant-baseline="central">180°</text>
+                                    <text x="130" y="67" transform="rotate(210, 130, 130)" text-anchor="middle" dominant-baseline="central">210°</text>
+                                    <text x="130" y="67" transform="rotate(240, 130, 130)" text-anchor="middle" dominant-baseline="central">240°</text>
+                                    <text x="130" y="67" transform="rotate(270, 130, 130)" text-anchor="middle" dominant-baseline="central">270°</text>
+                                    <text x="130" y="67" transform="rotate(300, 130, 130)" text-anchor="middle" dominant-baseline="central">300°</text>
+                                    <text x="130" y="67" transform="rotate(330, 130, 130)" text-anchor="middle" dominant-baseline="central">330°</text>
                                 </g>
 
-                                <!-- Cardinal Points -->
-                                <g font-family="var(--font-heading)" font-weight="800" font-size="13">
-                                    <text x="130" y="74" text-anchor="middle" dominant-baseline="central" fill="#ef4444">S</text>
-                                    <text x="170" y="90" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10">SV</text>
-                                    <text x="186" y="130" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)">V</text>
-                                    <text x="170" y="170" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10">JV</text>
-                                    <text x="130" y="186" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)">J</text>
-                                    <text x="90" y="170" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10">JZ</text>
-                                    <text x="74" y="130" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)">Z</text>
-                                    <text x="90" y="90" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10">SZ</text>
+                                <!-- Cardinal Points radially aligned -->
+                                <g font-family="var(--font-heading)" font-weight="800">
+                                    <text x="130" y="52" transform="rotate(0, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ef4444" font-size="13">S</text>
+                                    <text x="130" y="52" transform="rotate(45, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10" font-weight="700">SV</text>
+                                    <text x="130" y="52" transform="rotate(90, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)" font-size="13">V</text>
+                                    <text x="130" y="52" transform="rotate(135, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10" font-weight="700">JV</text>
+                                    <text x="130" y="52" transform="rotate(180, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)" font-size="13">J</text>
+                                    <text x="130" y="52" transform="rotate(225, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10" font-weight="700">JZ</text>
+                                    <text x="130" y="52" transform="rotate(270, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)" font-size="13">Z</text>
+                                    <text x="130" y="52" transform="rotate(315, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10" font-weight="700">SZ</text>
                                 </g>
                             </g>
 
@@ -548,8 +548,8 @@
 
                         <!-- Digital Readout -->
                         <div class="gauge-center-content">
-                            <div class="gauge-center-val" id="nav-heading-deg">---°</div>
-                            <div class="gauge-center-unit" id="nav-heading-cardinal">MIRUJE</div>
+                            <div class="gauge-center-val" id="nav-heading-deg">MIROVANJE</div>
+                            <div class="gauge-center-unit" id="nav-heading-cardinal"></div>
                         </div>
                     </div>
                 </div>
@@ -579,8 +579,8 @@
     </div>
 
     <!-- Application Logic Scripts -->
-    <script src="Arcots.js?v=55"></script>
-    <script src="TideCalculator.js?v=55"></script>
-    <script src="index.js?v=55"></script>
+    <script src="Arcots.js?v=58"></script>
+    <script src="TideCalculator.js?v=58"></script>
+    <script src="index.js?v=58"></script>
 </body>
 </html>

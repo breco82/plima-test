@@ -326,206 +326,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Main Top Tab Navigation Switcher
-function setActiveMainTab(tabName) {
-    if (tabName !== 'plimovanje' && tabName !== 'vreme' && tabName !== 'navigacija') return;
-    activeMainTab = tabName;
-
-    // Update button states
-    const btnTides = document.getElementById('btn-tab-tides');
-    const btnWeather = document.getElementById('btn-tab-weather');
-    const btnNav = document.getElementById('btn-tab-nav');
-
-    if (btnTides) btnTides.classList.toggle('active', tabName === 'plimovanje');
-    if (btnWeather) btnWeather.classList.toggle('active', tabName === 'vreme');
-    if (btnNav) btnNav.classList.toggle('active', tabName === 'navigacija');
-
-    // Update pane visibility
-    const paneTides = document.getElementById('pane-tides');
-    const paneWeather = document.getElementById('pane-weather');
-    const paneNav = document.getElementById('pane-navigation');
-
-    if (paneTides) {
-        paneTides.classList.toggle('active', tabName === 'plimovanje');
-        paneTides.style.display = tabName === 'plimovanje' ? 'flex' : 'none';
-    }
-    if (paneWeather) {
-        paneWeather.classList.toggle('active', tabName === 'vreme');
-        paneWeather.style.display = tabName === 'vreme' ? 'flex' : 'none';
-    }
-    if (paneNav) {
-        paneNav.classList.toggle('active', tabName === 'navigacija');
-        paneNav.style.display = tabName === 'navigacija' ? 'flex' : 'none';
-    }
-
-    // Handle tab-specific lifecycles
-    if (tabName === 'plimovanje') {
-        stopGpsNavigation();
-        if (currentChart) {
-            setTimeout(() => currentChart.reflow(), 60);
-        }
-    } else if (tabName === 'vreme') {
-        stopGpsNavigation();
-        renderWeather();
-        renderArsoForecast();
-        updateMoonPhase();
-    } else if (tabName === 'navigacija') {
-        startGpsNavigation();
-    }
-}
-window.setActiveMainTab = setActiveMainTab;
-
-// Format decimal degrees to standard nautical format (DMM: DD° MM.mmm' N/S/E/W)
-function formatNauticalCoord(degDec, isLat) {
-    if (degDec === null || degDec === undefined || isNaN(degDec)) {
-        return isLat ? `--° --.---' N` : `---° --.---' E`;
-    }
-    const absVal = Math.abs(degDec);
-    const deg = Math.floor(absVal);
-    const min = (absVal - deg) * 60;
-    
-    if (isLat) {
-        const hemi = degDec >= 0 ? "N" : "S";
-        return `${String(deg).padStart(2, '0')}° ${min.toFixed(3)}' ${hemi}`;
-    } else {
-        const hemi = degDec >= 0 ? "E" : "W";
-        return `${String(deg).padStart(3, '0')}° ${min.toFixed(3)}' ${hemi}`;
-    }
-}
-
-// Start GPS Tracking for Navigation Tab (High Accuracy)
-function startGpsNavigation() {
-    const statusText = document.getElementById('nav-status-text');
-    const statusBanner = document.getElementById('nav-status-banner');
-    const gpsIcon = document.getElementById('nav-gps-icon');
-
-    if (!('geolocation' in navigator)) {
-        if (statusText) statusText.textContent = "GPS ni podprt na tej napravi";
-        if (statusBanner) statusBanner.className = "nav-status-banner error";
-        return;
-    }
-
-    if (statusText) statusText.textContent = "Iskanje GPS satelitov...";
-    if (statusBanner) statusBanner.className = "nav-status-banner";
-    if (gpsIcon) gpsIcon.className = "fa-solid fa-satellite-dish fa-spin";
-
-    if (gpsWatchId !== null) {
-        navigator.geolocation.clearWatch(gpsWatchId);
-        gpsWatchId = null;
-    }
-
-    const options = {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0
-    };
-
-    gpsWatchId = navigator.geolocation.watchPosition(
-        (position) => {
-            if (activeMainTab !== 'navigacija') return;
-            updateGpsUI(position);
-        },
-        (error) => {
-            if (activeMainTab !== 'navigacija') return;
-            console.warn("GPS error:", error);
-            if (statusBanner) statusBanner.className = "nav-status-banner error";
-            if (gpsIcon) gpsIcon.className = "fa-solid fa-triangle-exclamation";
-            if (statusText) {
-                if (error.code === error.PERMISSION_DENIED) {
-                    statusText.textContent = "Dostop do lokacije zavrnjen (omogočite v nastavitvah)";
-                } else if (error.code === error.POSITION_UNAVAILABLE) {
-                    statusText.textContent = "GPS signal trenutno ni na voljo";
-                } else if (error.code === error.TIMEOUT) {
-                    statusText.textContent = "Iskanje satelitov (čakamo na fiks)...";
-                } else {
-                    statusText.textContent = "Napaka pri branju GPS";
-                }
-            }
-        },
-        options
-    );
-}
-
-// Stop GPS Tracking to conserve battery
-function stopGpsNavigation() {
-    if (gpsWatchId !== null) {
-        navigator.geolocation.clearWatch(gpsWatchId);
-        gpsWatchId = null;
-    }
-}
-
-// Update Navigation Gauges & Coordinates UI
-function updateGpsUI(position) {
-    if (!position || !position.coords) return;
-    const coords = position.coords;
-    const statusText = document.getElementById('nav-status-text');
-    const statusBanner = document.getElementById('nav-status-banner');
-    const gpsIcon = document.getElementById('nav-gps-icon');
-
-    if (statusBanner) statusBanner.className = "nav-status-banner connected";
-    if (gpsIcon) gpsIcon.className = "fa-solid fa-satellite-dish";
-    if (statusText) statusText.textContent = "GPS sprejemnik aktiven";
-
-    // 1. Update Coordinates in Nautical DMM format
-    const latEl = document.getElementById('nav-lat-val');
-    const lonEl = document.getElementById('nav-lon-val');
-    if (latEl) latEl.textContent = formatNauticalCoord(coords.latitude, true);
-    if (lonEl) lonEl.textContent = formatNauticalCoord(coords.longitude, false);
-
-    // 2. Update Speed (SOG)
-    let speedMs = (coords.speed !== null && !isNaN(coords.speed) && coords.speed >= 0) ? coords.speed : 0;
-    let speedKnots = speedMs * 1.943844;
-    let speedKmh = speedMs * 3.6;
-
-    const speedKnotsEl = document.getElementById('nav-speed-knots');
-    const speedKmhEl = document.getElementById('nav-speed-kmh');
-    if (speedKnotsEl) speedKnotsEl.textContent = speedKnots.toFixed(1);
-    if (speedKmhEl) speedKmhEl.textContent = `${speedKmh.toFixed(1)} km/h`;
-
-    // Speedometer Arc Fill & Needle
-    // Total arc circumference for R=95 over 270 deg = 447.67
-    const speedArc = document.getElementById('speed-gauge-arc');
-    const speedNeedle = document.getElementById('speed-needle-group');
-    
-    // Scale goes from 0 to 20 knots
-    const clampedKnots = Math.max(0, Math.min(20, speedKnots));
-    const arcOffset = 447.67 * (1.0 - (clampedKnots / 20.0));
-    if (speedArc) {
-        speedArc.style.strokeDashoffset = arcOffset;
-    }
-    if (speedNeedle) {
-        // Angle ranges from -135deg (0 kt) to +135deg (20 kt)
-        const needleAngle = -135 + (clampedKnots / 20.0) * 270;
-        speedNeedle.style.transform = `rotate(${needleAngle}deg)`;
-    }
-
-    // 3. Update Heading (COG) & Compass
-    const headingDegEl = document.getElementById('nav-heading-deg');
-    const headingCardEl = document.getElementById('nav-heading-cardinal');
-    const compassNeedle = document.getElementById('compass-needle-group');
-    
-    const heading = coords.heading;
-    if (heading !== null && !isNaN(heading) && speedKnots >= 0.4) {
-        lastGpsHeading = heading;
-        const roundedDeg = Math.round(heading);
-        const cardDir = getWindDirectionSlo(heading);
-        
-        if (headingDegEl) headingDegEl.textContent = `${roundedDeg}°`;
-        if (headingCardEl) headingCardEl.textContent = cardDir;
-        if (compassNeedle) compassNeedle.style.transform = `rotate(${roundedDeg}deg)`;
-    } else if (lastGpsHeading !== null) {
-        const roundedDeg = Math.round(lastGpsHeading);
-        const cardDir = getWindDirectionSlo(lastGpsHeading);
-        if (headingDegEl) headingDegEl.textContent = `${roundedDeg}°`;
-        if (headingCardEl) headingCardEl.textContent = `${cardDir} (miruje)`;
-        if (compassNeedle) compassNeedle.style.transform = `rotate(${roundedDeg}deg)`;
-    } else {
-        if (headingDegEl) headingDegEl.textContent = `---°`;
-        if (headingCardEl) headingCardEl.textContent = `MIRUJE`;
-        if (compassNeedle) compassNeedle.style.transform = `rotate(0deg)`;
-    }
-}
-
 function updateClock() {
     const timeDisplay = document.getElementById('current-time-display');
     const now = new Date();
@@ -1679,31 +1479,34 @@ async function parseArsoAmsXml(stationId, cb) {
         };
 
         const rawT = getValue("t");
-        const tempVal = rawT && !isNaN(parseFloat(rawT)) ? parseFloat(rawT) : 0;
+        const tempVal = rawT && !isNaN(parseFloat(rawT)) ? parseFloat(rawT) : null;
         
         const rawRh = getValue("rh");
-        const rh = rawRh && !isNaN(parseFloat(rawRh)) ? parseFloat(rawRh) : 65;
+        const rh = rawRh && !isNaN(parseFloat(rawRh)) ? parseFloat(rawRh) : null;
 
         // Wind calculations (both buoy and airport use m/s in ffavg_val and km/h in ffavg_val_kmh)
         let rawFfKmh = getValue("ffavg_val_kmh") || getValue("ff_val_kmh");
         let rawFfMs = getValue("ffavg_val") || getValue("ff_val");
-        let windSpeedKmh = rawFfKmh && !isNaN(parseFloat(rawFfKmh)) ? parseFloat(rawFfKmh) : 0;
-        let windSpeedMs = rawFfMs && !isNaN(parseFloat(rawFfMs)) ? parseFloat(rawFfMs) : 0;
+        let windSpeedKmh = rawFfKmh && !isNaN(parseFloat(rawFfKmh)) ? parseFloat(rawFfKmh) : null;
+        let windSpeedMs = rawFfMs && !isNaN(parseFloat(rawFfMs)) ? parseFloat(rawFfMs) : null;
         
-        if (windSpeedKmh === 0 && windSpeedMs > 0) {
+        if (windSpeedKmh === null && windSpeedMs !== null) {
             windSpeedKmh = windSpeedMs * 3.6;
-        } else if (windSpeedMs === 0 && windSpeedKmh > 0) {
+        } else if (windSpeedMs === null && windSpeedKmh !== null) {
             windSpeedMs = windSpeedKmh / 3.6;
         }
 
-        const e = (rh / 100.0) * 6.105 * Math.exp((17.27 * tempVal) / (237.7 + tempVal));
-        const feelsLike = tempVal + 0.33 * e - 0.7 * windSpeedMs - 4.0;
+        let feelsLike = null;
+        if (tempVal !== null && rh !== null && windSpeedMs !== null) {
+            const e = (rh / 100.0) * 6.105 * Math.exp((17.27 * tempVal) / (237.7 + tempVal));
+            feelsLike = tempVal + 0.33 * e - 0.7 * windSpeedMs - 4.0;
+        }
 
         const rawDd = getValue("dd_val") || getValue("ddavg_val");
         const windDirDeg = rawDd && !isNaN(parseFloat(rawDd)) ? parseFloat(rawDd) : 0;
         let windDirStr = getValue("dd_shortText") || getValue("ddavg_shortText") || "";
         if (!windDirStr || /^\d+°?$/.test(windDirStr)) {
-            windDirStr = (windSpeedKmh > 0 || windSpeedMs > 0) ? getWindDirectionSlo(windDirDeg) : "Brezvetrje";
+            windDirStr = (windSpeedKmh !== null && (windSpeedKmh > 0 || windSpeedMs > 0)) ? getWindDirectionSlo(windDirDeg) : "Brezvetrje";
         }
 
         const rawP = getValue("p") || getValue("msl");
@@ -1738,15 +1541,77 @@ async function parseArsoAmsXml(stationId, cb) {
     }
 }
 
+// Helper to manage persistent sensor values with the 60-minute fallback threshold rule
+function processSensorValueWithThreshold(stationKey, sensorKey, currentValue, rowDate) {
+    const storageValKey = `arso_${stationKey}_last_${sensorKey}`;
+    const storageTimeKey = `arso_${stationKey}_last_${sensorKey}_time`;
+    
+    if (currentValue !== null && currentValue !== undefined && (typeof currentValue !== 'number' || !isNaN(currentValue))) {
+        // Fresh measurement from XML
+        try {
+            localStorage.setItem(storageValKey, JSON.stringify(currentValue));
+            localStorage.setItem(storageTimeKey, rowDate.toISOString());
+        } catch (e) {}
+        return {
+            value: currentValue,
+            staleNote: null,
+            staleType: null,
+            isFresh: true
+        };
+    }
+    
+    // Missing measurement - check persistent storage
+    let lastVal = null;
+    let lastTimeIso = null;
+    try {
+        const storedVal = localStorage.getItem(storageValKey);
+        if (storedVal !== null && storedVal !== 'undefined') {
+            lastVal = JSON.parse(storedVal);
+        }
+        lastTimeIso = localStorage.getItem(storageTimeKey);
+    } catch (e) {}
+    
+    if (lastTimeIso && lastVal !== null) {
+        const lastDate = new Date(lastTimeIso);
+        const ageMinutes = Math.max(0, Math.round((rowDate.getTime() - lastDate.getTime()) / (60 * 1000)));
+        const timeStr = lastDate.toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit' });
+        
+        if (ageMinutes < 60) {
+            // Under 60 min: retain last known value with amber warning note
+            return {
+                value: lastVal,
+                staleNote: `Ni svežega podatka (zadnja posodobitev ARSO ob ${timeStr})`,
+                staleType: 'warning',
+                isFresh: false
+            };
+        } else {
+            // 60 min or older: return null with red note
+            return {
+                value: null,
+                staleNote: `Ni svežega podatka (zadnja posodobitev ARSO ob ${timeStr})`,
+                staleType: 'error',
+                isFresh: false
+            };
+        }
+    }
+    
+    // No previous history found
+    return {
+        value: null,
+        staleNote: 'Ni svežega podatka',
+        staleType: 'error',
+        isFresh: false
+    };
+}
+
 let lastWeatherFetchTime = 0;
 
 // Fetch weather conditions strictly from official ARSO station XML feeds (Piran Boja Vida & Letališče Portorož)
 async function loadWeather(forceLoadingState = false) {
     const cb = Date.now();
     
-    // If forced or if existing data is older than 5 minutes, reset to loading state immediately
-    const isStale = (Date.now() - lastWeatherFetchTime) > (5 * 60 * 1000);
-    if (forceLoadingState || isStale || (!weatherDataVida && !weatherDataPortoroz)) {
+    // Only reset to null if explicitly forced or if both are empty
+    if (forceLoadingState || (!weatherDataVida && !weatherDataPortoroz)) {
         weatherDataVida = null;
         weatherDataPortoroz = null;
         renderWeather();
@@ -1774,24 +1639,115 @@ async function loadWeather(forceLoadingState = false) {
     // Run XML fetches in parallel
     const [vidaData, portorozData] = await Promise.all([fetchVidaXml(), fetchPortorozXml()]);
     
+    // 1. Process Letališče Portorož
     if (portorozData) {
+        const portorozRowDate = parseArsoXmlDate(portorozData.validTime) || new Date();
+        
+        const pTemp = processSensorValueWithThreshold('portoroz', 'temp', portorozData.temp, portorozRowDate);
+        const pRh = processSensorValueWithThreshold('portoroz', 'rh', portorozData.humidity, portorozRowDate);
+        const pPressure = processSensorValueWithThreshold('portoroz', 'pressure', portorozData.pressure, portorozRowDate);
+        
+        let pWindInput = (portorozData.windSpeedKmh !== null) ? {
+            speedKmh: portorozData.windSpeedKmh,
+            speedMs: portorozData.windSpeedMs,
+            dirDeg: portorozData.windDirDeg,
+            dirStr: portorozData.windDirStr
+        } : null;
+        const pWind = processSensorValueWithThreshold('portoroz', 'wind', pWindInput, portorozRowDate);
+        
+        let pFeelsLike = null;
+        if (pTemp.value !== null && pRh.value !== null) {
+            const windMs = pWind.value ? (pWind.value.speedMs || 0) : 0;
+            const e = (pRh.value / 100.0) * 6.105 * Math.exp((17.27 * pTemp.value) / (237.7 + pTemp.value));
+            pFeelsLike = pTemp.value + 0.33 * e - 0.7 * windMs - 4.0;
+        }
+
         weatherDataPortoroz = {
             ...portorozData,
+            temp: pTemp.value,
+            tempStaleNote: pTemp.staleNote,
+            tempStaleType: pTemp.staleType,
+            humidity: pRh.value,
+            humidityStaleNote: pRh.staleNote,
+            humidityStaleType: pRh.staleType,
+            pressure: pPressure.value,
+            pressureStaleNote: pPressure.staleNote,
+            pressureStaleType: pPressure.staleType,
+            windSpeedKmh: pWind.value ? pWind.value.speedKmh : null,
+            windSpeedMs: pWind.value ? pWind.value.speedMs : null,
+            windDirDeg: pWind.value ? pWind.value.dirDeg : 0,
+            windDirStr: pWind.value ? pWind.value.dirStr : '',
+            windStaleNote: pWind.staleNote,
+            windStaleType: pWind.staleType,
+            feelsLike: pFeelsLike,
+            validTime: portorozData.validTime,
             waveHeight: currentMarineWaveHeight || 0.2
         };
     }
 
+    // 2. Process Piran (Boja Vida)
     if (vidaData) {
-        // Vida buoy doesn't measure air pressure, borrow pressure from Portorož Airport if available
-        const currentPress = vidaData.pressure || (weatherDataPortoroz ? weatherDataPortoroz.pressure : 1018);
+        const vidaRowDate = parseArsoXmlDate(vidaData.validTime) || new Date();
+        
+        const vTemp = processSensorValueWithThreshold('vida', 'temp', vidaData.temp, vidaRowDate);
+        const vRh = processSensorValueWithThreshold('vida', 'rh', vidaData.humidity, vidaRowDate);
+        
+        let vWindInput = (vidaData.windSpeedKmh !== null) ? {
+            speedKmh: vidaData.windSpeedKmh,
+            speedMs: vidaData.windSpeedMs,
+            dirDeg: vidaData.windDirDeg,
+            dirStr: vidaData.windDirStr
+        } : null;
+        const vWind = processSensorValueWithThreshold('vida', 'wind', vWindInput, vidaRowDate);
+        
+        let vFeelsLike = null;
+        if (vTemp.value !== null && vRh.value !== null) {
+            const windMs = vWind.value ? (vWind.value.speedMs || 0) : 0;
+            const e = (vRh.value / 100.0) * 6.105 * Math.exp((17.27 * vTemp.value) / (237.7 + vTemp.value));
+            vFeelsLike = vTemp.value + 0.33 * e - 0.7 * windMs - 4.0;
+        }
+
+        // Pressure for Boja Vida: ALWAYS borrowed from Portorož Airport!
+        let vPress = null;
+        let vPressStaleNote = null;
+        let vPressStaleType = null;
+        if (weatherDataPortoroz && weatherDataPortoroz.pressure !== null) {
+            vPress = weatherDataPortoroz.pressure;
+            vPressStaleNote = weatherDataPortoroz.pressureStaleNote;
+            vPressStaleType = weatherDataPortoroz.pressureStaleType;
+        } else if (vidaData.pressure) {
+            vPress = vidaData.pressure;
+        } else {
+            const pStoredPress = processSensorValueWithThreshold('portoroz', 'pressure', null, vidaRowDate);
+            vPress = pStoredPress.value || 1018;
+            vPressStaleNote = pStoredPress.staleNote;
+            vPressStaleType = pStoredPress.staleType;
+        }
+
         const currentDesc = (vidaData.description && vidaData.description !== "jasno") ? vidaData.description : (weatherDataPortoroz ? weatherDataPortoroz.description : "jasno");
         const currentIcon = vidaData.iconName || (weatherDataPortoroz ? weatherDataPortoroz.iconName : "clear");
-        
+
         weatherDataVida = {
             ...vidaData,
+            temp: vTemp.value,
+            tempStaleNote: vTemp.staleNote,
+            tempStaleType: vTemp.staleType,
+            humidity: vRh.value,
+            humidityStaleNote: vRh.staleNote,
+            humidityStaleType: vRh.staleType,
+            windSpeedKmh: vWind.value ? vWind.value.speedKmh : null,
+            windSpeedMs: vWind.value ? vWind.value.speedMs : null,
+            windDirDeg: vWind.value ? vWind.value.dirDeg : 0,
+            windDirStr: vWind.value ? vWind.value.dirStr : '',
+            windStaleNote: vWind.staleNote,
+            windStaleType: vWind.staleType,
+            feelsLike: vFeelsLike,
+            pressure: vPress,
+            pressureStaleNote: vPressStaleNote,
+            pressureStaleType: vPressStaleType,
+            validTime: vidaData.validTime,
             description: currentDesc,
             iconName: currentIcon,
-            pressure: currentPress,
             waveHeight: currentMarineWaveHeight || 0.2
         };
     }
@@ -1961,31 +1917,164 @@ function renderWeather() {
     }
 
     // Temperature & Apparent Temp (Emphasized and Bold)
-    document.getElementById('air-temp-val').textContent = `${data.temp.toFixed(1)}°C`;
-    document.getElementById('current-air-temp-val').textContent = `${data.temp.toFixed(1)}°C`;
-    
-    const feelsLikeStr = `Obč. ${Math.round(data.feelsLike)}°C`;
-    document.getElementById('air-temp-feels-val').textContent = feelsLikeStr;
-    document.getElementById('current-feels-like-val').textContent = feelsLikeStr;
+    const elAirTemp = document.getElementById('current-air-temp-val');
+    const elForecastAirTemp = document.getElementById('air-temp-val');
 
-    // Pressure & Humidity
-    document.getElementById('air-pressure-val').textContent = data.pressure ? `${Math.round(data.pressure)} hPa` : '-- hPa';
-    document.getElementById('humidity-val').textContent = `${Math.round(data.humidity)}%`;
+    if (data.temp !== null && !isNaN(data.temp)) {
+        const formattedTemp = `${data.temp.toFixed(1)}°C`;
+        if (elForecastAirTemp) elForecastAirTemp.textContent = formattedTemp;
+        
+        if (elAirTemp) {
+            if (data.tempStaleNote) {
+                const noteColor = data.tempStaleType === 'error' ? '#ef4444' : '#f59e0b';
+                elAirTemp.innerHTML = `
+                    <div style="text-align: right; line-height: 1.25;">
+                        <div>${formattedTemp}</div>
+                        <div style="font-size: 0.72rem; color: ${noteColor}; font-weight: 500; margin-top: 2px;">${data.tempStaleNote}</div>
+                    </div>
+                `;
+            } else {
+                elAirTemp.textContent = formattedTemp;
+            }
+        }
+    } else {
+        if (elForecastAirTemp) elForecastAirTemp.textContent = '--°C';
+        
+        if (elAirTemp) {
+            if (data.tempStaleNote) {
+                const noteColor = '#ef4444';
+                elAirTemp.innerHTML = `
+                    <div style="text-align: right; line-height: 1.25;">
+                        <div>-- °C</div>
+                        <div style="font-size: 0.72rem; color: ${noteColor}; font-weight: 500; margin-top: 2px;">${data.tempStaleNote}</div>
+                    </div>
+                `;
+            } else {
+                elAirTemp.textContent = '--°C';
+            }
+        }
+    }
+    
+    // Feels Like
+    const elFeelsLike = document.getElementById('current-feels-like-val');
+    const elForecastFeelsLike = document.getElementById('air-temp-feels-val');
+    if (data.feelsLike !== null && !isNaN(data.feelsLike)) {
+        const feelsLikeStr = `Obč. ${Math.round(data.feelsLike)}°C`;
+        if (elFeelsLike) elFeelsLike.textContent = feelsLikeStr;
+        if (elForecastFeelsLike) elForecastFeelsLike.textContent = feelsLikeStr;
+    } else {
+        if (elFeelsLike) elFeelsLike.textContent = 'Obč. --';
+        if (elForecastFeelsLike) elForecastFeelsLike.textContent = 'Obč. --';
+    }
+
+    // Pressure
+    const elPressure = document.getElementById('air-pressure-val');
+    if (elPressure) {
+        if (data.pressure !== null && !isNaN(data.pressure)) {
+            const formattedPress = `${Math.round(data.pressure)} hPa`;
+            if (data.pressureStaleNote) {
+                const noteColor = data.pressureStaleType === 'error' ? '#ef4444' : '#f59e0b';
+                elPressure.innerHTML = `
+                    <div style="text-align: right; line-height: 1.25;">
+                        <div>${formattedPress}</div>
+                        <div style="font-size: 0.72rem; color: ${noteColor}; font-weight: 500; margin-top: 2px;">${data.pressureStaleNote}</div>
+                    </div>
+                `;
+            } else {
+                elPressure.textContent = formattedPress;
+            }
+        } else {
+            if (data.pressureStaleNote) {
+                elPressure.innerHTML = `
+                    <div style="text-align: right; line-height: 1.25;">
+                        <div>-- hPa</div>
+                        <div style="font-size: 0.72rem; color: #ef4444; font-weight: 500; margin-top: 2px;">${data.pressureStaleNote}</div>
+                    </div>
+                `;
+            } else {
+                elPressure.textContent = '-- hPa';
+            }
+        }
+    }
+    
+    // Humidity
+    const elHumidity = document.getElementById('humidity-val');
+    if (elHumidity) {
+        if (data.humidity !== null && !isNaN(data.humidity)) {
+            const formattedRh = `${Math.round(data.humidity)}%`;
+            if (data.humidityStaleNote) {
+                const noteColor = data.humidityStaleType === 'error' ? '#ef4444' : '#f59e0b';
+                elHumidity.innerHTML = `
+                    <div style="text-align: right; line-height: 1.25;">
+                        <div>${formattedRh}</div>
+                        <div style="font-size: 0.72rem; color: ${noteColor}; font-weight: 500; margin-top: 2px;">${data.humidityStaleNote}</div>
+                    </div>
+                `;
+            } else {
+                elHumidity.textContent = formattedRh;
+            }
+        } else {
+            if (data.humidityStaleNote) {
+                elHumidity.innerHTML = `
+                    <div style="text-align: right; line-height: 1.25;">
+                        <div>-- %</div>
+                        <div style="font-size: 0.72rem; color: #ef4444; font-weight: 500; margin-top: 2px;">${data.humidityStaleNote}</div>
+                    </div>
+                `;
+            } else {
+                elHumidity.textContent = '-- %';
+            }
+        }
+    }
 
     // Wind (dual units + Beaufort scale display in separate line)
-    const windArrow = getWindArrowHtml(data.windDirDeg);
-    const bft = getBeaufortInfo(data.windSpeedKmh);
-    document.getElementById('wind-speed-val').innerHTML = `
-        <div style="text-align: right; line-height: 1.25;">
-            <div>${windArrow}${data.windSpeedMs.toFixed(1)} m/s (${Math.round(data.windSpeedKmh)} km/h)</div>
-            <div style="font-size: 0.72rem; color: var(--text-secondary); font-weight: 500; margin-top: 2px;">${bft.bft} Bft - ${bft.text}</div>
-        </div>
-    `;
-    let windDirDisplay = data.windDirStr;
-    if (!windDirDisplay || /^\d+°?$/.test(windDirDisplay)) {
-        windDirDisplay = (data.windSpeedKmh > 0 || data.windSpeedMs > 0) ? getWindDirectionSlo(data.windDirDeg) : 'Brezvetrje';
+    const elWindSpeed = document.getElementById('wind-speed-val');
+    const elWindDir = document.getElementById('wind-dir-val');
+
+    if (data.windSpeedKmh !== null && !isNaN(data.windSpeedKmh)) {
+        const windArrow = getWindArrowHtml(data.windDirDeg);
+        const bft = getBeaufortInfo(data.windSpeedKmh);
+        const speedMsVal = (data.windSpeedMs !== null && !isNaN(data.windSpeedMs)) ? data.windSpeedMs : 0;
+        
+        let noteHtml = '';
+        if (data.windStaleNote) {
+            const noteColor = data.windStaleType === 'error' ? '#ef4444' : '#f59e0b';
+            noteHtml = `<div style="font-size: 0.72rem; color: ${noteColor}; font-weight: 500; margin-top: 2px;">${data.windStaleNote}</div>`;
+        }
+
+        if (elWindSpeed) {
+            elWindSpeed.innerHTML = `
+                <div style="text-align: right; line-height: 1.25;">
+                    <div>${windArrow}${speedMsVal.toFixed(1)} m/s (${Math.round(data.windSpeedKmh)} km/h)</div>
+                    <div style="font-size: 0.72rem; color: var(--text-secondary); font-weight: 500; margin-top: 2px;">${bft.bft} Bft - ${bft.text}</div>
+                    ${noteHtml}
+                </div>
+            `;
+        }
+        if (elWindDir) {
+            let windDirDisplay = data.windDirStr;
+            if (!windDirDisplay || /^\d+°?$/.test(windDirDisplay)) {
+                windDirDisplay = (data.windSpeedKmh > 0 || speedMsVal > 0) ? getWindDirectionSlo(data.windDirDeg) : 'Brezvetrje';
+            }
+            elWindDir.textContent = windDirDisplay;
+        }
+    } else {
+        if (elWindSpeed) {
+            if (data.windStaleNote) {
+                elWindSpeed.innerHTML = `
+                    <div style="text-align: right; line-height: 1.25;">
+                        <div>-- km/h</div>
+                        <div style="font-size: 0.72rem; color: #ef4444; font-weight: 500; margin-top: 2px;">${data.windStaleNote}</div>
+                    </div>
+                `;
+            } else {
+                elWindSpeed.textContent = '-- km/h';
+            }
+        }
+        if (elWindDir) {
+            elWindDir.textContent = '--';
+        }
     }
-    document.getElementById('wind-dir-val').textContent = windDirDisplay;
 
     // Waves (Vida measurement or Open-Meteo model fallback for Portorož)
     let waveH = data.waveHeight;
@@ -2712,6 +2801,12 @@ function updateThemeIcon() {
 let phoneMagneticHeading = 0;
 let orientationActive = false;
 let lastGpsSpeedKnots = 0;
+let currentDialAngle = 0;
+let currentNeedleAngle = 0;
+
+function getShortestAngleDelta(current, target) {
+    return ((target - current) % 360 + 540) % 360 - 180;
+}
 
 function setActiveMainTab(tabName) {
     activeMainTab = tabName;
@@ -2802,21 +2897,24 @@ function handleDeviceOrientation(event) {
 }
 
 function updateCompassOrientation() {
-    // 1. Rotate the compass dial so "S" always points physically North
+    // 1. Rotate the compass dial smoothly with shortest-angle unwrapping so "S" always points physically North
+    const targetDial = -phoneMagneticHeading;
+    currentDialAngle += getShortestAngleDelta(currentDialAngle, targetDial);
     const compassDial = document.getElementById('compass-dial-group');
     if (compassDial) {
-        compassDial.style.transform = `rotate(${-phoneMagneticHeading}deg)`;
+        compassDial.style.transform = `rotate(${currentDialAngle}deg)`;
     }
 
-    // 2. Rotate the GPS COG pointer relative to the phone screen
+    // 2. Rotate the GPS COG pointer relative to the phone screen (smooth shortest-arc)
     const compassNeedle = document.getElementById('compass-needle-group');
     if (compassNeedle) {
-        if (lastGpsHeading !== null) {
-            const relativeAngle = (lastGpsHeading - phoneMagneticHeading + 360) % 360;
-            compassNeedle.style.transform = `rotate(${relativeAngle}deg)`;
+        if (lastGpsHeading !== null && lastGpsSpeedKnots >= 0.4) {
+            const targetNeedle = (lastGpsHeading - phoneMagneticHeading);
+            currentNeedleAngle += getShortestAngleDelta(currentNeedleAngle, targetNeedle);
+            compassNeedle.style.transform = `rotate(${currentNeedleAngle}deg)`;
             compassNeedle.style.opacity = '1';
         } else {
-            compassNeedle.style.opacity = '0.4';
+            compassNeedle.style.opacity = '0.35';
         }
     }
 }
@@ -2990,21 +3088,39 @@ function updateGpsUI(pos) {
     const headingDegEl = document.getElementById('nav-heading-deg');
     const headingCardEl = document.getElementById('nav-heading-cardinal');
 
-    if (heading !== null && !isNaN(heading) && heading >= 0) {
+    if (speedKnots < 0.4) {
+        // Plovilo miruje
+        if (headingDegEl) {
+            headingDegEl.textContent = 'MIROVANJE';
+            headingDegEl.classList.add('status-text');
+        }
+        if (headingCardEl) {
+            headingCardEl.textContent = '';
+        }
+    } else if (heading !== null && !isNaN(heading) && heading >= 0) {
         lastGpsHeading = heading;
-        if (headingDegEl) headingDegEl.textContent = `${Math.round(heading)}°`;
-        if (headingCardEl) headingCardEl.textContent = getHeadingCardinal(heading);
+        if (headingDegEl) {
+            headingDegEl.textContent = `${Math.round(heading)}°`;
+            headingDegEl.classList.remove('status-text');
+        }
+        if (headingCardEl) {
+            headingCardEl.textContent = getHeadingCardinal(heading);
+        }
+    } else if (lastGpsHeading !== null) {
+        if (headingDegEl) {
+            headingDegEl.textContent = `${Math.round(lastGpsHeading)}°`;
+            headingDegEl.classList.remove('status-text');
+        }
+        if (headingCardEl) {
+            headingCardEl.textContent = getHeadingCardinal(lastGpsHeading);
+        }
     } else {
-        // If speed is very low (< 0.5 kt), heading is often undefined
-        if (speedKnots < 0.5) {
-            if (headingDegEl) headingDegEl.textContent = lastGpsHeading !== null ? `${Math.round(lastGpsHeading)}°` : `---°`;
-            if (headingCardEl) headingCardEl.textContent = 'MIRUJE';
-        } else if (lastGpsHeading !== null) {
-            if (headingDegEl) headingDegEl.textContent = `${Math.round(lastGpsHeading)}°`;
-            if (headingCardEl) headingCardEl.textContent = getHeadingCardinal(lastGpsHeading);
-        } else {
-            if (headingDegEl) headingDegEl.textContent = '---°';
-            if (headingCardEl) headingCardEl.textContent = '--';
+        if (headingDegEl) {
+            headingDegEl.textContent = 'MIROVANJE';
+            headingDegEl.classList.add('status-text');
+        }
+        if (headingCardEl) {
+            headingCardEl.textContent = '';
         }
     }
 
