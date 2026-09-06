@@ -2709,6 +2709,10 @@ function updateThemeIcon() {
 // 3-Tab Main Navigation & GPS Marine Dashboard
 // ==========================================
 
+let phoneMagneticHeading = 0;
+let orientationActive = false;
+let lastGpsSpeedKnots = 0;
+
 function setActiveMainTab(tabName) {
     activeMainTab = tabName;
     
@@ -2739,9 +2743,9 @@ function setActiveMainTab(tabName) {
         paneNav.style.display = tabName === 'navigacija' ? 'flex' : 'none';
     }
     
-    // 3. Manage GPS Tracking Lifecycle (Run GPS ONLY on Navigation Tab)
+    // 3. Manage GPS & Sensor Tracking Lifecycle (Run ONLY on Navigation Tab)
     if (tabName === 'navigacija') {
-        startGpsNavigation();
+        startGpsNavigation(true);
     } else {
         stopGpsNavigation();
     }
@@ -2780,24 +2784,98 @@ function getHeadingCardinal(deg) {
     return cardinals[idx];
 }
 
-// Start GPS hardware tracking with high accuracy
-function startGpsNavigation() {
-    if (!('geolocation' in navigator)) {
-        const banner = document.getElementById('nav-status-banner');
-        const bannerText = document.getElementById('nav-status-text');
-        if (banner) {
-            banner.className = 'nav-status-banner error';
-            if (bannerText) bannerText.textContent = 'GPS naprava ni podprta v tem brskalniku';
+// Device Orientation Tracker for real-time North alignment
+function handleDeviceOrientation(event) {
+    let heading = null;
+    if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
+        // iOS Safari provides direct compass heading (0 = North)
+        heading = event.webkitCompassHeading;
+    } else if (event.alpha !== null && event.alpha !== undefined) {
+        // Android / W3C standard
+        heading = (360 - event.alpha) % 360;
+    }
+
+    if (heading !== null && !isNaN(heading)) {
+        phoneMagneticHeading = (heading % 360 + 360) % 360;
+        updateCompassOrientation();
+    }
+}
+
+function updateCompassOrientation() {
+    // 1. Rotate the compass dial so "S" always points physically North
+    const compassDial = document.getElementById('compass-dial-group');
+    if (compassDial) {
+        compassDial.style.transform = `rotate(${-phoneMagneticHeading}deg)`;
+    }
+
+    // 2. Rotate the GPS COG pointer relative to the phone screen
+    const compassNeedle = document.getElementById('compass-needle-group');
+    if (compassNeedle) {
+        if (lastGpsHeading !== null) {
+            const relativeAngle = (lastGpsHeading - phoneMagneticHeading + 360) % 360;
+            compassNeedle.style.transform = `rotate(${relativeAngle}deg)`;
+            compassNeedle.style.opacity = '1';
+        } else {
+            compassNeedle.style.opacity = '0.4';
         }
+    }
+}
+
+function startOrientationTracking() {
+    if (orientationActive) return;
+
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+            .then(permissionState => {
+                if (permissionState === 'granted') {
+                    window.addEventListener('deviceorientation', handleDeviceOrientation, true);
+                    orientationActive = true;
+                }
+            })
+            .catch(err => console.warn('DeviceOrientation permission request failed:', err));
+    } else if ('ondeviceorientationabsolute' in window) {
+        window.addEventListener('deviceorientationabsolute', handleDeviceOrientation, true);
+        orientationActive = true;
+    } else if ('ondeviceorientation' in window) {
+        window.addEventListener('deviceorientation', handleDeviceOrientation, true);
+        orientationActive = true;
+    }
+}
+
+function stopOrientationTracking() {
+    if (!orientationActive) return;
+    window.removeEventListener('deviceorientationabsolute', handleDeviceOrientation, true);
+    window.removeEventListener('deviceorientation', handleDeviceOrientation, true);
+    orientationActive = false;
+}
+
+// Start GPS hardware tracking with high accuracy
+function startGpsNavigation(isUserGesture = false) {
+    const banner = document.getElementById('nav-status-banner');
+    const bannerText = document.getElementById('nav-status-text');
+    const toggleBtn = document.getElementById('nav-gps-toggle-btn');
+
+    // Check HTTPS requirement
+    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        if (banner) banner.className = 'nav-status-banner error';
+        if (bannerText) bannerText.textContent = 'GPS zahteva HTTPS varno povezavo';
+        if (toggleBtn) toggleBtn.style.display = 'none';
         return;
     }
 
-    const banner = document.getElementById('nav-status-banner');
-    const bannerText = document.getElementById('nav-status-text');
-    if (banner) {
-        banner.className = 'nav-status-banner';
-        if (bannerText) bannerText.textContent = 'Iskanje GPS signala...';
+    if (!('geolocation' in navigator)) {
+        if (banner) banner.className = 'nav-status-banner error';
+        if (bannerText) bannerText.textContent = 'GPS ni podprt v tem brskalniku';
+        if (toggleBtn) toggleBtn.style.display = 'none';
+        return;
     }
+
+    if (banner) banner.className = 'nav-status-banner';
+    if (bannerText) bannerText.textContent = 'Iskanje GPS signala...';
+    if (toggleBtn) toggleBtn.style.display = 'none';
+
+    // Start orientation sensor for compass dial
+    startOrientationTracking();
 
     if (gpsWatchId !== null) {
         navigator.geolocation.clearWatch(gpsWatchId);
@@ -2810,12 +2888,18 @@ function startGpsNavigation() {
         timeout: 15000
     };
 
+    // If initiated by user click, trigger getCurrentPosition to force permission modal
+    if (isUserGesture) {
+        navigator.geolocation.getCurrentPosition(updateGpsUI, handleGpsError, { enableHighAccuracy: true, timeout: 10000 });
+    }
+
     try {
         gpsWatchId = navigator.geolocation.watchPosition(updateGpsUI, handleGpsError, options);
     } catch (e) {
         console.warn('Geolocation error starting watch:', e);
     }
 }
+window.startGpsNavigation = startGpsNavigation;
 
 // Stop GPS tracking to conserve device battery
 function stopGpsNavigation() {
@@ -2823,24 +2907,31 @@ function stopGpsNavigation() {
         navigator.geolocation.clearWatch(gpsWatchId);
         gpsWatchId = null;
     }
+    stopOrientationTracking();
 }
 
 function handleGpsError(err) {
     console.warn('GPS Error:', err);
     const banner = document.getElementById('nav-status-banner');
     const bannerText = document.getElementById('nav-status-text');
+    const toggleBtn = document.getElementById('nav-gps-toggle-btn');
+
     if (banner) {
         banner.className = 'nav-status-banner error';
         if (bannerText) {
             if (err.code === 1) {
-                bannerText.textContent = 'Dostop do lokacije je zavrnjen (preverite dovoljenja)';
+                bannerText.textContent = 'Dostop do lokacije je zavrnjen v nastavitvah';
             } else if (err.code === 2) {
-                bannerText.textContent = 'GPS signal ni na voljo';
+                bannerText.textContent = 'Iskanje GPS satelitov (preverite pogled v nebo)...';
             } else if (err.code === 3) {
                 bannerText.textContent = 'Časovna omejitev GPS signala';
             } else {
                 bannerText.textContent = 'Napaka pri branju GPS podatkov';
             }
+        }
+        if (toggleBtn) {
+            toggleBtn.style.display = 'inline-block';
+            toggleBtn.textContent = (err.code === 1) ? 'Omogoči GPS' : 'Poskusi znova';
         }
     }
 }
@@ -2853,13 +2944,12 @@ function updateGpsUI(pos) {
     // Status Banner update
     const banner = document.getElementById('nav-status-banner');
     const bannerText = document.getElementById('nav-status-text');
-    if (banner) {
-        banner.className = 'nav-status-banner connected';
-        if (bannerText) bannerText.textContent = 'GPS signal aktiven';
-    }
+    const toggleBtn = document.getElementById('nav-gps-toggle-btn');
+    if (banner) banner.className = 'nav-status-banner connected';
+    if (bannerText) bannerText.textContent = 'GPS signal aktiven';
+    if (toggleBtn) toggleBtn.style.display = 'none';
 
     // 1. SPEED (SOG)
-    // coords.speed is in meters/second -> convert to knots (NM/h) and km/h
     let speedMs = coords.speed;
     let speedKnots = 0;
     let speedKmh = 0;
@@ -2868,6 +2958,7 @@ function updateGpsUI(pos) {
         speedKnots = speedMs * 1.943844;
         speedKmh = speedMs * 3.6;
     }
+    lastGpsSpeedKnots = speedKnots;
 
     // Gauge range: 0 to 20 knots
     const clampedKnots = Math.min(Math.max(speedKnots, 0), 20);
@@ -2894,15 +2985,13 @@ function updateGpsUI(pos) {
     if (knotsValEl) knotsValEl.textContent = speedKnots.toFixed(1);
     if (kmhValEl) kmhValEl.textContent = `${speedKmh.toFixed(1)} km/h`;
 
-    // 2. HEADING (COG / Kompas)
+    // 2. HEADING (COG / Hibridni Kompas)
     let heading = coords.heading;
-    const compassNeedle = document.getElementById('compass-needle-group');
     const headingDegEl = document.getElementById('nav-heading-deg');
     const headingCardEl = document.getElementById('nav-heading-cardinal');
 
     if (heading !== null && !isNaN(heading) && heading >= 0) {
         lastGpsHeading = heading;
-        if (compassNeedle) compassNeedle.style.transform = `rotate(${heading}deg)`;
         if (headingDegEl) headingDegEl.textContent = `${Math.round(heading)}°`;
         if (headingCardEl) headingCardEl.textContent = getHeadingCardinal(heading);
     } else {
@@ -2911,7 +3000,6 @@ function updateGpsUI(pos) {
             if (headingDegEl) headingDegEl.textContent = lastGpsHeading !== null ? `${Math.round(lastGpsHeading)}°` : `---°`;
             if (headingCardEl) headingCardEl.textContent = 'MIRUJE';
         } else if (lastGpsHeading !== null) {
-            if (compassNeedle) compassNeedle.style.transform = `rotate(${lastGpsHeading}deg)`;
             if (headingDegEl) headingDegEl.textContent = `${Math.round(lastGpsHeading)}°`;
             if (headingCardEl) headingCardEl.textContent = getHeadingCardinal(lastGpsHeading);
         } else {
@@ -2920,6 +3008,8 @@ function updateGpsUI(pos) {
         }
     }
 
+    updateCompassOrientation();
+
     // 3. NAUTICAL COORDINATES (DMM)
     const latValEl = document.getElementById('nav-lat-val');
     const lonValEl = document.getElementById('nav-lon-val');
@@ -2927,11 +3017,11 @@ function updateGpsUI(pos) {
     if (lonValEl) lonValEl.textContent = formatNauticalCoord(coords.longitude, false);
 }
 
-// Pause GPS on app minimize/background and resume when foregrounded
+// Pause GPS & orientation on app minimize/background and resume when foregrounded
 document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
         stopGpsNavigation();
     } else if (activeMainTab === 'navigacija') {
-        startGpsNavigation();
+        startGpsNavigation(false);
     }
 });
