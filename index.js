@@ -2794,20 +2794,217 @@ function updateThemeIcon() {
     }
 }
 
-// ==========================================
-// 3-Tab Main Navigation & GPS Marine Dashboard
-// ==========================================
+// =========================================================================
+// 3-Tab Main Navigation, GPS Marine Dashboard, Nautical Map & Smart Router
+// =========================================================================
 
 let phoneMagneticHeading = 0;
 let orientationActive = false;
 let lastGpsSpeedKnots = 0;
 let currentDialAngle = 0;
 let currentNeedleAngle = 0;
+let lastGpsCoords = null; // { latitude, longitude, speed, heading, accuracy }
+
+// Nautical Map & Routing State
+let navMap = null;
+let navMapLayers = {};
+let currentNavMapLayerType = 'nautical';
+let navBoatMarker = null;
+let navDestMarker = null;
+let navPlannedRoutePolyline = null;
+let navRecordedTrackPolyline = null;
+
+let currentNavDestination = null; // { lat, lon, name }
+let currentPlannedWaypoints = []; // Array of [lat, lon]
+
+// Cruise Recording & Telemetry State
+let isCruiseActive = false;
+let cruiseStartTime = null;
+let cruiseDurationTimer = null;
+let cruiseTrackPoints = []; // Array of [lat, lon]
+let cruiseTotalDistanceNm = 0;
+let lastRecordedGpsPos = null;
+let cruiseWakeLock = null;
+
+// Standard Nautical Destinations on Slovenian Coast
+const QUICK_DESTINATIONS = {
+    koper: { lat: 45.5483, lon: 13.7294, name: 'Koper Kapitanija' },
+    izola: { lat: 45.5392, lon: 13.6558, name: 'Marina Izola' },
+    vida: { lat: 45.5488, lon: 13.5504, name: 'Boja Vida' },
+    piran: { lat: 45.5283, lon: 13.5672, name: 'Piran Pristanišče' },
+    portoroz: { lat: 45.5042, lon: 13.5936, name: 'Marina Portorož' },
+    strunjan: { lat: 45.5333, lon: 13.6067, name: 'Strunjan' },
+    debeli_rtic: { lat: 45.5925, lon: 13.7031, name: 'Debeli rtič' }
+};
+
+// Safe Marine Passage Corridor Network (200m+ from shore and shallows)
+// Coordinates for safe navigable routing around Slovenian headlands:
+const MARINE_NODES = {
+    DEBELI_RTIC_OFFSHORE: { id: 'DEBELI_RTIC_OFFSHORE', lat: 45.6020, lon: 13.6850 },
+    KOPER_OUTER: { id: 'KOPER_OUTER', lat: 45.5680, lon: 13.7080 },
+    KOPER_INNER: { id: 'KOPER_INNER', lat: 45.5483, lon: 13.7294 },
+    IZOLA_OUTER: { id: 'IZOLA_OUTER', lat: 45.5520, lon: 13.6580 },
+    IZOLA_INNER: { id: 'IZOLA_INNER', lat: 45.5392, lon: 13.6558 },
+    STRUNJAN_RONEK_OFFSHORE: { id: 'STRUNJAN_RONEK_OFFSHORE', lat: 45.5470, lon: 13.5950 },
+    STRUNJAN_INNER: { id: 'STRUNJAN_INNER', lat: 45.5333, lon: 13.6067 },
+    BOJA_VIDA: { id: 'BOJA_VIDA', lat: 45.5488, lon: 13.5504 },
+    PUNTA_PIRAN_OFFSHORE: { id: 'PUNTA_PIRAN_OFFSHORE', lat: 45.5360, lon: 13.5540 },
+    PIRAN_PORT_INNER: { id: 'PIRAN_PORT_INNER', lat: 45.5283, lon: 13.5672 },
+    PIRAN_BAY_OUTER: { id: 'PIRAN_BAY_OUTER', lat: 45.5180, lon: 13.5550 },
+    PORTOROZ_INNER: { id: 'PORTOROZ_INNER', lat: 45.5042, lon: 13.5936 },
+    SECA_CHANNEL: { id: 'SECA_CHANNEL', lat: 45.4960, lon: 13.6020 }
+};
+
+// Coastal Fairway Adjacency Graph (bidirectional connections)
+const MARINE_EDGES = [
+    ['KOPER_INNER', 'KOPER_OUTER'],
+    ['KOPER_OUTER', 'DEBELI_RTIC_OFFSHORE'],
+    ['KOPER_OUTER', 'IZOLA_OUTER'],
+    ['IZOLA_INNER', 'IZOLA_OUTER'],
+    ['IZOLA_OUTER', 'STRUNJAN_RONEK_OFFSHORE'],
+    ['STRUNJAN_INNER', 'STRUNJAN_RONEK_OFFSHORE'],
+    ['STRUNJAN_RONEK_OFFSHORE', 'PUNTA_PIRAN_OFFSHORE'],
+    ['STRUNJAN_RONEK_OFFSHORE', 'BOJA_VIDA'],
+    ['BOJA_VIDA', 'PUNTA_PIRAN_OFFSHORE'],
+    ['PUNTA_PIRAN_OFFSHORE', 'PIRAN_PORT_INNER'],
+    ['PUNTA_PIRAN_OFFSHORE', 'PIRAN_BAY_OUTER'],
+    ['PIRAN_PORT_INNER', 'PIRAN_BAY_OUTER'],
+    ['PIRAN_BAY_OUTER', 'PORTOROZ_INNER'],
+    ['PORTOROZ_INNER', 'SECA_CHANNEL']
+];
 
 function getShortestAngleDelta(current, target) {
     return ((target - current) % 360 + 540) % 360 - 180;
 }
 
+// Distance & Bearing Calculations
+function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function calculateBearing(lat1, lon1, lat2, lon2) {
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+    const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+              Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+    let brg = Math.atan2(y, x) * 180 / Math.PI;
+    return (brg + 360) % 360;
+}
+
+function formatDuration(totalSec) {
+    const hrs = Math.floor(totalSec / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+    const secs = totalSec % 60;
+    const pad = n => String(n).padStart(2, '0');
+    if (hrs > 0) {
+        return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+    }
+    return `${pad(mins)}:${pad(secs)}`;
+}
+
+// Marine Router Pathfinding
+function findNearestMarineNode(lat, lon) {
+    let bestNode = null;
+    let minD = Infinity;
+    for (const key in MARINE_NODES) {
+        const node = MARINE_NODES[key];
+        const d = haversineDistanceMeters(lat, lon, node.lat, node.lon);
+        if (d < minD) {
+            minD = d;
+            bestNode = key;
+        }
+    }
+    return bestNode;
+}
+
+function calculateMarineRoute(startLat, startLon, endLat, endLon) {
+    const directDist = haversineDistanceMeters(startLat, startLon, endLat, endLon);
+    
+    // If start and destination are very close (< 800m), direct path
+    if (directDist < 800) {
+        return [[startLat, startLon], [endLat, endLon]];
+    }
+
+    const startNodeKey = findNearestMarineNode(startLat, startLon);
+    const endNodeKey = findNearestMarineNode(endLat, endLon);
+
+    if (startNodeKey === endNodeKey) {
+        return [[startLat, startLon], [MARINE_NODES[startNodeKey].lat, MARINE_NODES[startNodeKey].lon], [endLat, endLon]];
+    }
+
+    const graph = {};
+    for (const k in MARINE_NODES) {
+        graph[k] = [];
+    }
+    MARINE_EDGES.forEach(([u, v]) => {
+        const d = haversineDistanceMeters(MARINE_NODES[u].lat, MARINE_NODES[u].lon, MARINE_NODES[v].lat, MARINE_NODES[v].lon);
+        if (graph[u]) graph[u].push({ node: v, weight: d });
+        if (graph[v]) graph[v].push({ node: u, weight: d });
+    });
+
+    const distances = {};
+    const previous = {};
+    const unvisited = new Set(Object.keys(MARINE_NODES));
+
+    for (const k in MARINE_NODES) {
+        distances[k] = Infinity;
+        previous[k] = null;
+    }
+    distances[startNodeKey] = 0;
+
+    while (unvisited.size > 0) {
+        let current = null;
+        let smallestDist = Infinity;
+        for (const node of unvisited) {
+            if (distances[node] < smallestDist) {
+                smallestDist = distances[node];
+                current = node;
+            }
+        }
+
+        if (current === null || current === endNodeKey || smallestDist === Infinity) {
+            break;
+        }
+
+        unvisited.delete(current);
+
+        for (const neighbor of graph[current]) {
+            if (!unvisited.has(neighbor.node)) continue;
+            const alt = distances[current] + neighbor.weight;
+            if (alt < distances[neighbor.node]) {
+                distances[neighbor.node] = alt;
+                previous[neighbor.node] = current;
+            }
+        }
+    }
+
+    const pathNodes = [];
+    let curr = endNodeKey;
+    while (curr) {
+        pathNodes.unshift(curr);
+        curr = previous[curr];
+    }
+
+    if (pathNodes[0] !== startNodeKey) {
+        return [[startLat, startLon], [endLat, endLon]];
+    }
+
+    const resultCoords = [[startLat, startLon]];
+    for (const nKey of pathNodes) {
+        resultCoords.push([MARINE_NODES[nKey].lat, MARINE_NODES[nKey].lon]);
+    }
+    resultCoords.push([endLat, endLon]);
+
+    return resultCoords;
+}
+
+// 3-Tab Main Tab Switching
 function setActiveMainTab(tabName) {
     activeMainTab = tabName;
     
@@ -2838,10 +3035,16 @@ function setActiveMainTab(tabName) {
         paneNav.style.display = tabName === 'navigacija' ? 'flex' : 'none';
     }
     
-    // 3. Manage GPS & Sensor Tracking Lifecycle (Run ONLY on Navigation Tab)
+    // 3. Manage GPS & Sensor Tracking Lifecycle
     if (tabName === 'navigacija') {
         startGpsNavigation(true);
-    } else {
+        setTimeout(() => {
+            initNavMap();
+            if (navMap) {
+                navMap.invalidateSize();
+            }
+        }, 120);
+    } else if (!isCruiseActive) {
         stopGpsNavigation();
     }
     
@@ -2856,7 +3059,7 @@ function setActiveMainTab(tabName) {
 }
 window.setActiveMainTab = setActiveMainTab;
 
-// Format decimal coordinates to standard Nautical format: DD° MM.mmm' N/S & DDD° MM.mmm' E/W
+// Format decimal coordinates to Nautical DMM format: DD° MM.mmm' N/S & DDD° MM.mmm' E/W
 function formatNauticalCoord(degDec, isLat) {
     if (degDec === null || degDec === undefined || isNaN(degDec)) {
         return isLat ? "--° --.---' N" : "---° --.---' E";
@@ -2883,10 +3086,8 @@ function getHeadingCardinal(deg) {
 function handleDeviceOrientation(event) {
     let heading = null;
     if (event.webkitCompassHeading !== undefined && event.webkitCompassHeading !== null) {
-        // iOS Safari provides direct compass heading (0 = North)
         heading = event.webkitCompassHeading;
     } else if (event.alpha !== null && event.alpha !== undefined) {
-        // Android / W3C standard
         heading = (360 - event.alpha) % 360;
     }
 
@@ -2897,7 +3098,7 @@ function handleDeviceOrientation(event) {
 }
 
 function updateCompassOrientation() {
-    // 1. Rotate the compass dial smoothly with shortest-angle unwrapping so "S" always points physically North
+    // 1. Rotate the compass dial smoothly with shortest-angle unwrapping
     const targetDial = -phoneMagneticHeading;
     currentDialAngle += getShortestAngleDelta(currentDialAngle, targetDial);
     const compassDial = document.getElementById('compass-dial-group');
@@ -2905,7 +3106,7 @@ function updateCompassOrientation() {
         compassDial.style.transform = `rotate(${currentDialAngle}deg)`;
     }
 
-    // 2. Rotate the GPS COG pointer relative to the phone screen (smooth shortest-arc)
+    // 2. Rotate the GPS COG pointer relative to the dial
     const compassNeedle = document.getElementById('compass-needle-group');
     if (compassNeedle) {
         if (lastGpsHeading !== null && lastGpsSpeedKnots >= 0.4) {
@@ -2953,7 +3154,6 @@ function startGpsNavigation(isUserGesture = false) {
     const bannerText = document.getElementById('nav-status-text');
     const toggleBtn = document.getElementById('nav-gps-toggle-btn');
 
-    // Check HTTPS requirement
     if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
         if (banner) banner.className = 'nav-status-banner error';
         if (bannerText) bannerText.textContent = 'GPS zahteva HTTPS varno povezavo';
@@ -2972,7 +3172,6 @@ function startGpsNavigation(isUserGesture = false) {
     if (bannerText) bannerText.textContent = 'Iskanje GPS signala...';
     if (toggleBtn) toggleBtn.style.display = 'none';
 
-    // Start orientation sensor for compass dial
     startOrientationTracking();
 
     if (gpsWatchId !== null) {
@@ -2986,7 +3185,6 @@ function startGpsNavigation(isUserGesture = false) {
         timeout: 15000
     };
 
-    // If initiated by user click, trigger getCurrentPosition to force permission modal
     if (isUserGesture) {
         navigator.geolocation.getCurrentPosition(updateGpsUI, handleGpsError, { enableHighAccuracy: true, timeout: 10000 });
     }
@@ -3034,10 +3232,444 @@ function handleGpsError(err) {
     }
 }
 
-// Process GPS position and update gauges & coordinates
+// Leaflet Nautical Map Initialization
+function initNavMap() {
+    if (navMap) return;
+    const mapContainer = document.getElementById('nav-map');
+    if (!mapContainer || typeof L === 'undefined') return;
+
+    const initialLat = lastGpsCoords ? lastGpsCoords.latitude : 45.545;
+    const initialLon = lastGpsCoords ? lastGpsCoords.longitude : 13.650;
+
+    navMap = L.map('nav-map', {
+        center: [initialLat, initialLon],
+        zoom: 12,
+        zoomControl: true,
+        attributionControl: false
+    });
+
+    // Base Tile Layers
+    navMapLayers.osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        crossOrigin: true
+    });
+
+    navMapLayers.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 18,
+        crossOrigin: true
+    });
+
+    navMapLayers.seamarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        crossOrigin: true
+    });
+
+    // Default layer: Nautical
+    navMapLayers.osm.addTo(navMap);
+    navMapLayers.seamarks.addTo(navMap);
+
+    // Map click handler for destination selection
+    navMap.on('click', function(e) {
+        setNavDestination(e.latlng.lat, e.latlng.lng, 'Izbrana točka');
+    });
+
+    // Custom boat icon
+    const boatIconHtml = `
+        <div id="leaflet-boat-icon" style="transform-origin: center; transition: transform 0.3s ease; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;">
+            <svg viewBox="0 0 40 40" width="34" height="34" style="filter: drop-shadow(0 2px 5px rgba(0,0,0,0.6));">
+                <circle cx="20" cy="20" r="18" fill="rgba(14, 165, 233, 0.25)" stroke="#38bdf8" stroke-width="2"/>
+                <polygon points="20,4 32,34 20,26 8,34" fill="#0284c7" stroke="#ffffff" stroke-width="1.5"/>
+                <circle cx="20" cy="20" r="3.5" fill="#ffffff"/>
+            </svg>
+        </div>
+    `;
+
+    const boatIcon = L.divIcon({
+        className: 'leaflet-boat-divicon',
+        html: boatIconHtml,
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+    });
+
+    navBoatMarker = L.marker([initialLat, initialLon], { icon: boatIcon, zIndexOffset: 1000 }).addTo(navMap);
+
+    // Polylines
+    navPlannedRoutePolyline = L.polyline([], {
+        color: '#0284c7',
+        weight: 4,
+        dashArray: '8, 8',
+        opacity: 0.9
+    }).addTo(navMap);
+
+    navRecordedTrackPolyline = L.polyline([], {
+        color: '#10b981',
+        weight: 5,
+        opacity: 0.95
+    }).addTo(navMap);
+
+    renderLogbook();
+}
+
+// Layer Switching
+function setNavMapLayer(layerType) {
+    if (!navMap) return;
+    currentNavMapLayerType = layerType;
+
+    const pills = ['nautical', 'satellite', 'osm'];
+    pills.forEach(p => {
+        const btn = document.getElementById(`pill-layer-${p}`);
+        if (btn) btn.classList.toggle('active', p === layerType);
+    });
+
+    if (navMap.hasLayer(navMapLayers.osm)) navMap.removeLayer(navMapLayers.osm);
+    if (navMap.hasLayer(navMapLayers.satellite)) navMap.removeLayer(navMapLayers.satellite);
+    if (navMap.hasLayer(navMapLayers.seamarks)) navMap.removeLayer(navMapLayers.seamarks);
+
+    if (layerType === 'nautical') {
+        navMapLayers.osm.addTo(navMap);
+        navMapLayers.seamarks.addTo(navMap);
+    } else if (layerType === 'satellite') {
+        navMapLayers.satellite.addTo(navMap);
+        navMapLayers.seamarks.addTo(navMap);
+    } else if (layerType === 'osm') {
+        navMapLayers.osm.addTo(navMap);
+    }
+}
+window.setNavMapLayer = setNavMapLayer;
+
+// Quick Destination Selection
+function selectQuickDest(key) {
+    const dest = QUICK_DESTINATIONS[key];
+    if (!dest) return;
+    setNavDestination(dest.lat, dest.lon, dest.name);
+}
+window.selectQuickDest = selectQuickDest;
+
+function setNavDestination(lat, lon, name) {
+    initNavMap();
+    currentNavDestination = { lat, lon, name };
+
+    if (navDestMarker) {
+        navDestMarker.setLatLng([lat, lon]);
+    } else {
+        const destIconHtml = `
+            <div style="font-size: 26px; color: #ef4444; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.5)); transform: translate(-2px, -8px);">
+                <i class="fa-solid fa-location-dot"></i>
+            </div>
+        `;
+        const destIcon = L.divIcon({
+            className: 'leaflet-dest-divicon',
+            html: destIconHtml,
+            iconSize: [26, 26],
+            iconAnchor: [13, 26]
+        });
+        navDestMarker = L.marker([lat, lon], { icon: destIcon, zIndexOffset: 900 }).addTo(navMap);
+    }
+
+    navDestMarker.bindPopup(`<b>${name}</b><br><small>${lat.toFixed(4)}° N, ${lon.toFixed(4)}° E</small>`).openPopup();
+
+    const clearBtn = document.getElementById('map-clear-btn');
+    if (clearBtn) clearBtn.style.display = 'flex';
+
+    const boatLat = lastGpsCoords ? lastGpsCoords.latitude : 45.5483;
+    const boatLon = lastGpsCoords ? lastGpsCoords.longitude : 13.7294;
+
+    currentPlannedWaypoints = calculateMarineRoute(boatLat, boatLon, lat, lon);
+    if (navPlannedRoutePolyline) {
+        navPlannedRoutePolyline.setLatLngs(currentPlannedWaypoints);
+    }
+
+    if (navMap && currentPlannedWaypoints.length > 0) {
+        const bounds = L.latLngBounds(currentPlannedWaypoints);
+        navMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    }
+
+    if (lastGpsCoords) {
+        updateGpsUI({ coords: lastGpsCoords });
+    } else {
+        updateRouteTelemetryFallback(boatLat, boatLon);
+    }
+}
+window.setNavDestination = setNavDestination;
+
+function updateRouteTelemetryFallback(boatLat, boatLon) {
+    if (!currentNavDestination || currentPlannedWaypoints.length < 2) return;
+    let totalDtgMeters = 0;
+    for (let i = 0; i < currentPlannedWaypoints.length - 1; i++) {
+        totalDtgMeters += haversineDistanceMeters(
+            currentPlannedWaypoints[i][0], currentPlannedWaypoints[i][1],
+            currentPlannedWaypoints[i+1][0], currentPlannedWaypoints[i+1][1]
+        );
+    }
+    const dtgNm = totalDtgMeters / 1852;
+    const dtgKm = totalDtgMeters / 1000;
+
+    const dtgEl = document.getElementById('telem-dtg');
+    const dtgKmEl = document.getElementById('telem-dtg-km');
+    if (dtgEl) dtgEl.textContent = `${dtgNm.toFixed(2)} NM`;
+    if (dtgKmEl) dtgKmEl.textContent = `${dtgKm.toFixed(2)} km`;
+
+    const nextWp = currentPlannedWaypoints[1] || [currentNavDestination.lat, currentNavDestination.lon];
+    const brg = calculateBearing(boatLat, boatLon, nextWp[0], nextWp[1]);
+    const brgEl = document.getElementById('telem-brg');
+    const brgCardEl = document.getElementById('telem-brg-card');
+    if (brgEl) brgEl.textContent = `${Math.round(brg)}°`;
+    if (brgCardEl) brgCardEl.textContent = getHeadingCardinal(brg);
+}
+
+function clearNavRoute() {
+    currentNavDestination = null;
+    currentPlannedWaypoints = [];
+
+    if (navDestMarker && navMap) {
+        navMap.removeLayer(navDestMarker);
+        navDestMarker = null;
+    }
+    if (navPlannedRoutePolyline) {
+        navPlannedRoutePolyline.setLatLngs([]);
+    }
+
+    const clearBtn = document.getElementById('map-clear-btn');
+    if (clearBtn) clearBtn.style.display = 'none';
+
+    const dtgEl = document.getElementById('telem-dtg');
+    const dtgKmEl = document.getElementById('telem-dtg-km');
+    const ttgEl = document.getElementById('telem-ttg');
+    const etaEl = document.getElementById('telem-eta');
+    const brgEl = document.getElementById('telem-brg');
+    const brgCardEl = document.getElementById('telem-brg-card');
+
+    if (dtgEl) dtgEl.textContent = '--';
+    if (dtgKmEl) dtgKmEl.textContent = '-- km';
+    if (ttgEl) ttgEl.textContent = '--';
+    if (etaEl) etaEl.textContent = 'ETA: --:--';
+    if (brgEl) brgEl.textContent = '--°';
+    if (brgCardEl) brgCardEl.textContent = '--';
+}
+window.clearNavRoute = clearNavRoute;
+
+function centerMapOnBoat() {
+    if (!navMap) {
+        initNavMap();
+    }
+    if (lastGpsCoords && navMap) {
+        navMap.setView([lastGpsCoords.latitude, lastGpsCoords.longitude], 14, { animate: true });
+    } else if (navMap) {
+        navMap.setView([45.545, 13.650], 12, { animate: true });
+    }
+}
+window.centerMapOnBoat = centerMapOnBoat;
+
+// Screen Wake Lock API
+async function requestCruiseWakeLock() {
+    if ('wakeLock' in navigator) {
+        try {
+            cruiseWakeLock = await navigator.wakeLock.request('screen');
+            cruiseWakeLock.addEventListener('release', () => {
+                cruiseWakeLock = null;
+            });
+        } catch (e) {
+            console.warn('Wake Lock request failed:', e);
+        }
+    }
+}
+
+function releaseCruiseWakeLock() {
+    if (cruiseWakeLock !== null) {
+        cruiseWakeLock.release().then(() => {
+            cruiseWakeLock = null;
+        }).catch(() => {});
+    }
+}
+
+// Cruise Tracking Controller
+function toggleCruiseRecording() {
+    if (!isCruiseActive) {
+        startCruise();
+    } else {
+        stopCruisePrompt();
+    }
+}
+window.toggleCruiseRecording = toggleCruiseRecording;
+
+function startCruise() {
+    isCruiseActive = true;
+    cruiseStartTime = Date.now();
+    cruiseTrackPoints = [];
+    cruiseTotalDistanceNm = 0;
+
+    startGpsNavigation(true);
+
+    if (lastGpsCoords) {
+        lastRecordedGpsPos = { lat: lastGpsCoords.latitude, lon: lastGpsCoords.longitude };
+        cruiseTrackPoints.push([lastGpsCoords.latitude, lastGpsCoords.longitude]);
+    } else {
+        lastRecordedGpsPos = null;
+    }
+
+    if (navRecordedTrackPolyline) {
+        navRecordedTrackPolyline.setLatLngs(cruiseTrackPoints);
+    }
+
+    requestCruiseWakeLock();
+
+    const btn = document.getElementById('btn-cruise-toggle');
+    const icon = document.getElementById('cruise-btn-icon');
+    const text = document.getElementById('cruise-btn-text');
+    if (btn) btn.classList.add('active');
+    if (icon) icon.className = 'fa-solid fa-stop';
+    if (text) text.textContent = 'Zaključi plovbo';
+
+    if (cruiseDurationTimer) clearInterval(cruiseDurationTimer);
+    cruiseDurationTimer = setInterval(() => {
+        if (!isCruiseActive || !cruiseStartTime) return;
+        const sec = Math.floor((Date.now() - cruiseStartTime) / 1000);
+        const durationEl = document.getElementById('telem-duration');
+        if (durationEl) durationEl.textContent = formatDuration(sec);
+
+        const hrs = sec / 3600;
+        const avgSpeed = (hrs > 0 && cruiseTotalDistanceNm > 0) ? (cruiseTotalDistanceNm / hrs) : 0;
+        const avgSpeedEl = document.getElementById('telem-avg-speed');
+        if (avgSpeedEl) avgSpeedEl.textContent = `${avgSpeed.toFixed(1)} kt`;
+    }, 1000);
+}
+
+function stopCruisePrompt() {
+    const sec = cruiseStartTime ? Math.floor((Date.now() - cruiseStartTime) / 1000) : 0;
+    const hrs = sec / 3600;
+    const avgSpeed = (hrs > 0 && cruiseTotalDistanceNm > 0) ? (cruiseTotalDistanceNm / hrs) : 0;
+    const distKm = (cruiseTotalDistanceNm * 1.852).toFixed(2);
+
+    const destLabel = currentNavDestination ? currentNavDestination.name : 'Prosta plovba';
+
+    const saveConfirmed = confirm(
+        `PLOVBA ZAKLJUČENA\n` +
+        `-----------------------------\n` +
+        `• Cilj / Relacija: ${destLabel}\n` +
+        `• Čas plovbe: ${formatDuration(sec)}\n` +
+        `• Prepluto: ${cruiseTotalDistanceNm.toFixed(2)} NM (${distKm} km)\n` +
+        `• Povprečna hitrost: ${avgSpeed.toFixed(1)} kt\n\n` +
+        `Ali želite to plovbo shraniti v Dnevnik plovb?`
+    );
+
+    if (saveConfirmed) {
+        saveCruiseRecord({
+            id: 'cruise_' + Date.now(),
+            date: new Date().toLocaleDateString('sl-SI', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+            durationSec: sec,
+            distanceNm: cruiseTotalDistanceNm,
+            avgSpeedKnots: avgSpeed,
+            destName: destLabel
+        });
+    }
+
+    endCruiseState();
+}
+
+function endCruiseState() {
+    isCruiseActive = false;
+    cruiseStartTime = null;
+    if (cruiseDurationTimer) {
+        clearInterval(cruiseDurationTimer);
+        cruiseDurationTimer = null;
+    }
+    releaseCruiseWakeLock();
+
+    const btn = document.getElementById('btn-cruise-toggle');
+    const icon = document.getElementById('cruise-btn-icon');
+    const text = document.getElementById('cruise-btn-text');
+    if (btn) btn.classList.remove('active');
+    if (icon) icon.className = 'fa-solid fa-play';
+    if (text) text.textContent = 'Začni plovbo / snemanje';
+
+    if (activeMainTab !== 'navigacija') {
+        stopGpsNavigation();
+    }
+}
+
+// Cruise Logbook LocalStorage Management
+const LOGBOOK_STORAGE_KEY = 'plima_cruise_logbook';
+
+function getSavedLogbook() {
+    try {
+        const raw = localStorage.getItem(LOGBOOK_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveCruiseRecord(record) {
+    const list = getSavedLogbook();
+    list.unshift(record);
+    try {
+        localStorage.setItem(LOGBOOK_STORAGE_KEY, JSON.stringify(list));
+    } catch (e) {
+        console.warn('Failed to save logbook:', e);
+    }
+    renderLogbook();
+}
+
+function deleteLogbookEntry(id) {
+    if (!confirm('Ali res želite izbrisati ta zapis iz dnevnika?')) return;
+    let list = getSavedLogbook();
+    list = list.filter(item => item.id !== id);
+    try {
+        localStorage.setItem(LOGBOOK_STORAGE_KEY, JSON.stringify(list));
+    } catch (e) {}
+    renderLogbook();
+}
+window.deleteLogbookEntry = deleteLogbookEntry;
+
+function toggleLogbookDrawer() {
+    const listEl = document.getElementById('logbook-list');
+    const chevron = document.getElementById('logbook-chevron');
+    if (!listEl) return;
+    const isHidden = listEl.style.display === 'none';
+    listEl.style.display = isHidden ? 'flex' : 'none';
+    if (chevron) {
+        chevron.className = isHidden ? 'fa-solid fa-chevron-up' : 'fa-solid fa-chevron-down';
+    }
+    if (isHidden) {
+        renderLogbook();
+    }
+}
+window.toggleLogbookDrawer = toggleLogbookDrawer;
+
+function renderLogbook() {
+    const container = document.getElementById('logbook-list');
+    if (!container) return;
+    const list = getSavedLogbook();
+
+    if (list.length === 0) {
+        container.innerHTML = `<div style="text-align:center; padding:12px; color:var(--text-secondary); font-size:0.8rem;">Dnevnik je prazen. Shranjene plovbe se bodo prikazale tukaj.</div>`;
+        return;
+    }
+
+    let html = '';
+    list.forEach(item => {
+        const distKm = (item.distanceNm * 1.852).toFixed(1);
+        html += `
+            <div class="logbook-item">
+                <div style="display:flex; flex-direction:column; gap:2px;">
+                    <strong style="color:var(--text-primary); font-size:0.85rem;"><i class="fa-solid fa-ship" style="color:var(--accent-blue); margin-right:4px;"></i> ${item.destName || 'Plovba'}</strong>
+                    <span style="color:var(--text-secondary); font-size:0.72rem;">${item.date} • ${formatDuration(item.durationSec)}</span>
+                    <span style="color:var(--text-primary); font-size:0.75rem; font-weight:600;">${item.distanceNm.toFixed(2)} NM (${distKm} km) • Ø ${item.avgSpeedKnots.toFixed(1)} kt</span>
+                </div>
+                <button type="button" class="logbook-item-btn" onclick="deleteLogbookEntry('${item.id}')" title="Izbriši zapis">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+// Process GPS position and update gauges, coordinates, boat marker and telemetry
 function updateGpsUI(pos) {
     if (!pos || !pos.coords) return;
     const coords = pos.coords;
+    lastGpsCoords = coords;
 
     // Status Banner update
     const banner = document.getElementById('nav-status-banner');
@@ -3062,7 +3694,6 @@ function updateGpsUI(pos) {
     const clampedKnots = Math.min(Math.max(speedKnots, 0), 20);
     const speedRatio = clampedKnots / 20;
 
-    // Arc stroke-dashoffset (Total arc circumference length is ~447.67)
     const maxArcDash = 447.67;
     const currentOffset = maxArcDash * (1 - speedRatio);
     const speedArcEl = document.getElementById('speed-gauge-arc');
@@ -3070,14 +3701,12 @@ function updateGpsUI(pos) {
         speedArcEl.style.strokeDashoffset = currentOffset;
     }
 
-    // Needle rotation (-135deg at 0 kt, +135deg at 20 kt -> 270deg sweep)
     const needleDeg = -135 + (speedRatio * 270);
     const speedNeedle = document.getElementById('speed-needle-group');
     if (speedNeedle) {
         speedNeedle.style.transform = `rotate(${needleDeg}deg)`;
     }
 
-    // Digital readout
     const knotsValEl = document.getElementById('nav-speed-knots');
     const kmhValEl = document.getElementById('nav-speed-kmh');
     if (knotsValEl) knotsValEl.textContent = speedKnots.toFixed(1);
@@ -3089,7 +3718,6 @@ function updateGpsUI(pos) {
     const headingCardEl = document.getElementById('nav-heading-cardinal');
 
     if (speedKnots < 0.4) {
-        // Plovilo miruje
         if (headingDegEl) {
             headingDegEl.textContent = 'MIROVANJE';
             headingDegEl.classList.add('status-text');
@@ -3131,13 +3759,112 @@ function updateGpsUI(pos) {
     const lonValEl = document.getElementById('nav-lon-val');
     if (latValEl) latValEl.textContent = formatNauticalCoord(coords.latitude, true);
     if (lonValEl) lonValEl.textContent = formatNauticalCoord(coords.longitude, false);
+
+    // 4. MAP BOAT MARKER UPDATE
+    if (navMap) {
+        if (!navBoatMarker) {
+            initNavMap();
+        }
+        if (navBoatMarker) {
+            navBoatMarker.setLatLng([coords.latitude, coords.longitude]);
+            const boatIconEl = document.getElementById('leaflet-boat-icon');
+            if (boatIconEl && (heading !== null || lastGpsHeading !== null)) {
+                const rot = (heading !== null && !isNaN(heading)) ? heading : (lastGpsHeading || 0);
+                boatIconEl.style.transform = `rotate(${rot}deg)`;
+            }
+        }
+    }
+
+    // 5. CRUISE RECORDING TRACK ACCUMULATION
+    if (isCruiseActive) {
+        if (lastRecordedGpsPos) {
+            const deltaMeters = haversineDistanceMeters(lastRecordedGpsPos.lat, lastRecordedGpsPos.lon, coords.latitude, coords.longitude);
+            if (deltaMeters >= 3) {
+                const deltaNm = deltaMeters / 1852;
+                cruiseTotalDistanceNm += deltaNm;
+                cruiseTrackPoints.push([coords.latitude, coords.longitude]);
+                lastRecordedGpsPos = { lat: coords.latitude, lon: coords.longitude };
+                if (navRecordedTrackPolyline) {
+                    navRecordedTrackPolyline.setLatLngs(cruiseTrackPoints);
+                }
+            }
+        } else {
+            lastRecordedGpsPos = { lat: coords.latitude, lon: coords.longitude };
+            cruiseTrackPoints.push([coords.latitude, coords.longitude]);
+            if (navRecordedTrackPolyline) {
+                navRecordedTrackPolyline.setLatLngs(cruiseTrackPoints);
+            }
+        }
+
+        const distEl = document.getElementById('telem-dist');
+        const distKmEl = document.getElementById('telem-dist-km');
+        if (distEl) distEl.textContent = `${cruiseTotalDistanceNm.toFixed(2)} NM`;
+        if (distKmEl) distKmEl.textContent = `${(cruiseTotalDistanceNm * 1.852).toFixed(2)} km`;
+    }
+
+    // 6. ROUTE TELEMETRY (DTG, TTG, BRG)
+    if (currentNavDestination) {
+        currentPlannedWaypoints = calculateMarineRoute(coords.latitude, coords.longitude, currentNavDestination.lat, currentNavDestination.lon);
+        if (navPlannedRoutePolyline) {
+            navPlannedRoutePolyline.setLatLngs(currentPlannedWaypoints);
+        }
+
+        let totalDtgMeters = 0;
+        for (let i = 0; i < currentPlannedWaypoints.length - 1; i++) {
+            totalDtgMeters += haversineDistanceMeters(
+                currentPlannedWaypoints[i][0], currentPlannedWaypoints[i][1],
+                currentPlannedWaypoints[i+1][0], currentPlannedWaypoints[i+1][1]
+            );
+        }
+        const dtgNm = totalDtgMeters / 1852;
+        const dtgKm = totalDtgMeters / 1000;
+
+        const dtgEl = document.getElementById('telem-dtg');
+        const dtgKmEl = document.getElementById('telem-dtg-km');
+        if (dtgEl) dtgEl.textContent = `${dtgNm.toFixed(2)} NM`;
+        if (dtgKmEl) dtgKmEl.textContent = `${dtgKm.toFixed(2)} km`;
+
+        const nextWp = currentPlannedWaypoints.length > 1 ? currentPlannedWaypoints[1] : [currentNavDestination.lat, currentNavDestination.lon];
+        const brg = calculateBearing(coords.latitude, coords.longitude, nextWp[0], nextWp[1]);
+        const brgEl = document.getElementById('telem-brg');
+        const brgCardEl = document.getElementById('telem-brg-card');
+        if (brgEl) brgEl.textContent = `${Math.round(brg)}°`;
+        if (brgCardEl) brgCardEl.textContent = getHeadingCardinal(brg);
+
+        const ttgEl = document.getElementById('telem-ttg');
+        const etaEl = document.getElementById('telem-eta');
+        if (speedKnots >= 0.5) {
+            const ttgHours = dtgNm / speedKnots;
+            const ttgTotalSec = Math.round(ttgHours * 3600);
+            if (ttgEl) ttgEl.textContent = formatDuration(ttgTotalSec);
+
+            const etaDate = new Date(Date.now() + ttgTotalSec * 1000);
+            const etaHours = String(etaDate.getHours()).padStart(2, '0');
+            const etaMins = String(etaDate.getMinutes()).padStart(2, '0');
+            if (etaEl) etaEl.textContent = `ETA: ${etaHours}:${etaMins}`;
+        } else {
+            if (ttgEl) ttgEl.textContent = '--';
+            if (etaEl) etaEl.textContent = 'ETA: --:--';
+        }
+    }
 }
 
-// Pause GPS & orientation on app minimize/background and resume when foregrounded
+// Pause GPS & orientation on app minimize/background and resume when foregrounded (keeps running if cruise recording is active)
 document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-        stopGpsNavigation();
-    } else if (activeMainTab === 'navigacija') {
-        startGpsNavigation(false);
+        if (!isCruiseActive) {
+            stopGpsNavigation();
+        }
+    } else {
+        if (activeMainTab === 'navigacija' || isCruiseActive) {
+            startGpsNavigation(false);
+            if (isCruiseActive) {
+                requestCruiseWakeLock();
+            }
+            if (navMap) {
+                setTimeout(() => navMap.invalidateSize(), 100);
+            }
+        }
     }
 });
+

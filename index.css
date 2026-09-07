@@ -1286,7 +1286,7 @@ body.light-theme .main-tab-btn.active {
 
 /* Navigation Dashboard Styles */
 .nav-dashboard-container {
-    max-width: 500px;
+    max-width: 1000px;
     margin: 0 auto;
     width: 100%;
     display: flex;
@@ -1346,6 +1346,21 @@ body.light-theme .main-tab-btn.active {
     color: #ef4444;
 }
 
+/* Enlarged Gauges Grid */
+.nav-gauges-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.25rem;
+    width: 100%;
+}
+
+@media (max-width: 440px) {
+    .nav-gauges-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+}
+
 .gauge-card {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -1359,6 +1374,8 @@ body.light-theme .main-tab-btn.active {
     align-items: center;
     position: relative;
     overflow: hidden;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .gauge-card::before {
@@ -1396,12 +1413,18 @@ body.light-theme .main-tab-btn.active {
 .gauge-display-box {
     position: relative;
     width: 100%;
-    max-width: 290px;
+    max-width: 360px; /* Enlarged to fill screen beautifully */
     aspect-ratio: 1 / 1;
     display: flex;
     align-items: center;
     justify-content: center;
     margin: 0 auto;
+}
+
+@media (min-width: 600px) {
+    .gauge-display-box {
+        max-width: 380px;
+    }
 }
 
 .marine-gauge-svg {
@@ -1426,7 +1449,7 @@ body.light-theme .main-tab-btn.active {
 
 .gauge-center-val {
     font-family: var(--font-heading);
-    font-size: 2.7rem;
+    font-size: 3.2rem; /* Larger font for instant visibility */
     font-weight: 800;
     line-height: 1;
     letter-spacing: -1px;
@@ -1436,7 +1459,7 @@ body.light-theme .main-tab-btn.active {
 }
 
 .gauge-center-val.status-text {
-    font-size: 1.45rem;
+    font-size: 1.6rem;
     letter-spacing: 0.5px;
     font-weight: 700;
 }
@@ -1453,7 +1476,7 @@ body.light-theme .main-tab-btn.active {
 
 .gauge-center-unit {
     font-family: var(--font-heading);
-    font-size: 0.78rem;
+    font-size: 0.82rem;
     font-weight: 700;
     letter-spacing: 1px;
     color: var(--accent-blue);
@@ -1462,7 +1485,7 @@ body.light-theme .main-tab-btn.active {
 }
 
 .gauge-center-sub {
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     font-weight: 600;
     color: var(--text-secondary);
     margin-top: 2px;
@@ -1519,15 +1542,311 @@ body.light-theme .main-tab-btn.active {
     color: var(--text-primary);
 }
 
+/* Nautical Map & Route Planning Card */
+.nav-map-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    padding: 1.25rem;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.25);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.nav-map-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.nav-map-title {
+    font-family: var(--font-heading);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.nav-map-layer-pills {
+    display: flex;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 2px;
+}
+
+.map-pill-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.map-pill-btn.active {
+    background: var(--accent-blue);
+    color: #ffffff;
+}
+
+.nav-map-container-wrapper {
+    position: relative;
+    width: 100%;
+    height: 440px;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+}
+
+#nav-map {
+    width: 100%;
+    height: 100%;
+    background: #0f172a;
+    z-index: 1;
+}
+
+/* Floating map controls */
+.map-floating-btn {
+    position: absolute;
+    z-index: 500;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(6px);
+    transition: all 0.2s ease;
+}
+
+.map-floating-btn:hover {
+    background: var(--accent-blue);
+    transform: scale(1.05);
+}
+
+.map-locate-btn {
+    bottom: 16px;
+    right: 16px;
+}
+
+.map-clear-btn {
+    top: 16px;
+    right: 16px;
+}
+
+/* Quick Destination Chips */
+.quick-dest-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.quick-dest-title {
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+}
+
+.quick-dest-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.dest-chip-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    border-radius: 20px;
+    padding: 6px 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.dest-chip-btn:hover, .dest-chip-btn.active {
+    background: rgba(14, 165, 233, 0.18);
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+}
+
+/* Telemetry Dashboard Banner */
+.nav-telemetry-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 0.6rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 0.75rem;
+}
+
+.telem-box {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-align: center;
+}
+
+.telem-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+}
+
+.telem-val {
+    font-family: var(--font-heading);
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.telem-sub {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+/* Cruise Action Controls */
+.cruise-action-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.cruise-btn-primary {
+    flex: 1;
+    background: linear-gradient(135deg, #10b981, #059669);
+    border: none;
+    border-radius: 12px;
+    color: #ffffff;
+    font-family: var(--font-heading);
+    font-size: 1.05rem;
+    font-weight: 700;
+    padding: 0.85rem 1.25rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    box-shadow: 0 4px 16px rgba(16, 185, 129, 0.35);
+    transition: all 0.2s ease;
+}
+
+.cruise-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
+}
+
+.cruise-btn-primary.active {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+    animation: pulse-cruise 2s infinite;
+}
+
+@keyframes pulse-cruise {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+    50% { box-shadow: 0 0 16px 4px rgba(239, 68, 68, 0.6); }
+}
+
+/* Logbook drawer */
+.logbook-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.logbook-toggle-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    padding: 0.5rem 0.8rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s ease;
+}
+
+.logbook-toggle-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.logbook-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.logbook-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    padding: 0.6rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+}
+
+.logbook-item-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 4px 6px;
+    transition: color 0.2s ease;
+}
+
+.logbook-item-btn:hover {
+    color: #ef4444;
+}
+
 /* Light Theme Navigation overrides */
 body.light-theme .gauge-card,
-body.light-theme .nav-coords-card {
+body.light-theme .nav-coords-card,
+body.light-theme .nav-map-card {
     background: #ffffff;
     border-color: rgba(148, 163, 184, 0.25);
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
 }
 
-body.light-theme .coord-box {
+body.light-theme .coord-box,
+body.light-theme .nav-telemetry-grid,
+body.light-theme .logbook-item {
     background: rgba(0, 0, 0, 0.02);
     border-color: rgba(0, 0, 0, 0.04);
 }
@@ -1551,6 +1870,29 @@ body.light-theme .nav-status-banner.connected {
     border-color: rgba(22, 163, 74, 0.2);
     color: #16a34a;
 }
+
+body.light-theme .nav-map-layer-pills {
+    background: rgba(0, 0, 0, 0.04);
+    border-color: rgba(0, 0, 0, 0.08);
+}
+
+body.light-theme .dest-chip-btn {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.08);
+    color: #0f172a;
+}
+
+body.light-theme .dest-chip-btn:hover, body.light-theme .dest-chip-btn.active {
+    background: rgba(14, 165, 233, 0.1);
+    color: #0284c7;
+}
+
+body.light-theme .map-floating-btn {
+    background: rgba(255, 255, 255, 0.95);
+    border-color: rgba(0, 0, 0, 0.15);
+    color: #0f172a;
+}
+
 
 
 

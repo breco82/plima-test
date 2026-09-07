@@ -1,4 +1,4 @@
-const CACHE_NAME = 'plima-tracker-v58';
+const CACHE_NAME = 'plima-tracker-v59';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -8,6 +8,8 @@ const ASSETS_TO_CACHE = [
   './TideCalculator.js',
   './manifest.json',
   './icon.svg',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
   'https://code.highcharts.com/stock/highstock.js',
   'https://code.highcharts.com/modules/exporting.js',
   'https://code.highcharts.com/modules/accessibility.js',
