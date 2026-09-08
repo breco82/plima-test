@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- CSS Stylesheet -->
-    <link rel="stylesheet" href="index.css?v=61">
+    <link rel="stylesheet" href="index.css?v=62">
     <link rel="manifest" href="manifest.json">
     
     <!-- Leaflet Nautical Map CSS & JS -->
@@ -390,7 +390,7 @@
 
                 <!-- Enlarged Gauges Grid -->
                 <div class="nav-gauges-grid">
-                    <!-- Prikazovalnik 1: Hitrost plovbe (SOG do 20 vozlov) - Modern Marine Glass Cockpit -->
+                    <!-- Prikazovalnik 1: Hitrost plovbe (SOG do 20 vozlov) - Modern Marine Chrome Glass Cockpit -->
                     <div class="gauge-card">
                         <div class="gauge-card-header">
                             <span class="gauge-card-title"><i class="fa-solid fa-gauge-high"></i> Hitrost plovbe (SOG)</span>
@@ -398,6 +398,23 @@
                         <div class="gauge-display-box">
                             <svg viewBox="0 0 260 260" class="marine-gauge-svg">
                                 <defs>
+                                    <!-- Metallic Chrome Bezel Gradients -->
+                                    <linearGradient id="chromeBezelGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                        <stop offset="0%" stop-color="#e2e8f0"/>
+                                        <stop offset="20%" stop-color="#ffffff"/>
+                                        <stop offset="40%" stop-color="#64748b"/>
+                                        <stop offset="55%" stop-color="#334155"/>
+                                        <stop offset="75%" stop-color="#cbd5e1"/>
+                                        <stop offset="90%" stop-color="#ffffff"/>
+                                        <stop offset="100%" stop-color="#475569"/>
+                                    </linearGradient>
+                                    <linearGradient id="chromeInnerGrad" x1="100%" y1="0%" x2="0%" y2="100%">
+                                        <stop offset="0%" stop-color="#334155"/>
+                                        <stop offset="30%" stop-color="#94a3b8"/>
+                                        <stop offset="50%" stop-color="#ffffff"/>
+                                        <stop offset="70%" stop-color="#475569"/>
+                                        <stop offset="100%" stop-color="#cbd5e1"/>
+                                    </linearGradient>
                                     <!-- Dial face radial background -->
                                     <radialGradient id="gaugeBgGrad" cx="50%" cy="50%" r="50%">
                                         <stop offset="0%" stop-color="#1e293b"/>
@@ -418,13 +435,26 @@
                                     </filter>
                                 </defs>
 
-                                <!-- Instrument Dial Face Disc -->
-                                <circle cx="130" cy="130" r="118" fill="url(#gaugeBgGrad)" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
-                                <circle cx="130" cy="130" r="114" fill="none" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1.2"/>
-                                <circle cx="130" cy="130" r="95" fill="none" stroke="rgba(255, 255, 255, 0.05)" stroke-width="1"/>
+                                <!-- Chrome Bezel Outer Ring & Bevel -->
+                                <circle cx="130" cy="130" r="126" fill="url(#chromeBezelGrad)"/>
+                                <circle cx="130" cy="130" r="118" fill="url(#chromeInnerGrad)"/>
+                                <!-- Decorative Chrome Screws -->
+                                <circle cx="130" cy="7.5" r="3.2" fill="#e2e8f0" stroke="#334155" stroke-width="0.8"/>
+                                <line x1="128.5" y1="7.5" x2="131.5" y2="7.5" stroke="#334155" stroke-width="0.8"/>
+                                <circle cx="252.5" cy="130" r="3.2" fill="#e2e8f0" stroke="#334155" stroke-width="0.8"/>
+                                <line x1="252.5" y1="128.5" x2="252.5" y2="131.5" stroke="#334155" stroke-width="0.8"/>
+                                <circle cx="130" cy="252.5" r="3.2" fill="#e2e8f0" stroke="#334155" stroke-width="0.8"/>
+                                <line x1="128.5" y1="252.5" x2="131.5" y2="252.5" stroke="#334155" stroke-width="0.8"/>
+                                <circle cx="7.5" cy="130" r="3.2" fill="#e2e8f0" stroke="#334155" stroke-width="0.8"/>
+                                <line x1="7.5" y1="128.5" x2="7.5" y2="131.5" stroke="#334155" stroke-width="0.8"/>
+
+                                <!-- Inner Dark Dial Face Disc -->
+                                <circle cx="130" cy="130" r="112" fill="url(#gaugeBgGrad)" stroke="#0f172a" stroke-width="2"/>
+                                <circle cx="130" cy="130" r="110" fill="none" stroke="rgba(56, 189, 248, 0.35)" stroke-width="1.2"/>
+                                <circle cx="130" cy="130" r="95" fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1"/>
 
                                 <!-- Background Track Arc (270 deg from 135 to 405) -->
-                                <path d="M 62.8 197.2 A 95 95 0 1 1 197.2 197.2" fill="none" stroke="rgba(255, 255, 255, 0.12)" stroke-width="10" stroke-linecap="round"/>
+                                <path d="M 62.8 197.2 A 95 95 0 1 1 197.2 197.2" fill="none" stroke="rgba(255, 255, 255, 0.15)" stroke-width="10" stroke-linecap="round"/>
                                 
                                 <!-- Active Speed Arc Fill with Neon Glow -->
                                 <path id="speed-gauge-arc" d="M 62.8 197.2 A 95 95 0 1 1 197.2 197.2" fill="none" stroke="url(#speedArcGrad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="447.67" stroke-dashoffset="447.67" style="transition: stroke-dashoffset 0.4s ease-out;"/>
@@ -446,7 +476,7 @@
                                         <line x1='197.2' y1='197.2' x2='188.0' y2='188.0'/>
                                     </g>
                                     <!-- Minor ticks (every 1 knot) -->
-                                    <g stroke="#94a3b8" stroke-width="1.5" opacity="0.65">
+                                    <g stroke="#94a3b8" stroke-width="1.5" opacity="0.75">
                                         <line x1='49' y1='179.6' x2='55.5' y2='176.0'/>
                                         <line x1='35.3' y1='137.5' x2='42.5' y2='137.5'/>
                                         <line x1='42.2' y1='93.6' x2='48.8' y2='96.5'/>
@@ -461,7 +491,7 @@
                                 </g>
 
                                 <!-- Number Labels (Every 2 knots) -->
-                                <g class="gauge-labels" fill="#f8fafc" font-family="'Outfit', sans-serif" font-size="12.5" font-weight="800">
+                                <g class="gauge-labels" fill="#ffffff" font-family="'Outfit', sans-serif" font-size="13" font-weight="800">
                                     <text x='81' y='178' text-anchor='middle' dominant-baseline='central'>0</text>
                                     <text x='62' y='149' text-anchor='middle' dominant-baseline='central'>2</text>
                                     <text x='60' y='116' text-anchor='middle' dominant-baseline='central'>4</text>
@@ -491,7 +521,7 @@
                         </div>
                     </div>
 
-                    <!-- Prikazovalnik 2: Smer plovbe (COG / Hibridni Kompas) - Modern Marine Glass Cockpit -->
+                    <!-- Prikazovalnik 2: Smer plovbe (COG / Hibridni Kompas) - Modern Marine Chrome Glass Cockpit -->
                     <div class="gauge-card">
                         <div class="gauge-card-header">
                             <span class="gauge-card-title"><i class="fa-solid fa-compass"></i> Smer plovbe (COG)</span>
@@ -510,22 +540,35 @@
                                     </linearGradient>
                                 </defs>
 
-                                <!-- Instrument Dial Face Disc -->
-                                <circle cx="130" cy="130" r="118" fill="url(#compassBgGrad)" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
-                                <circle cx="130" cy="130" r="114" fill="none" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1.2"/>
+                                <!-- Chrome Bezel Outer Ring & Bevel -->
+                                <circle cx="130" cy="130" r="126" fill="url(#chromeBezelGrad)"/>
+                                <circle cx="130" cy="130" r="118" fill="url(#chromeInnerGrad)"/>
+                                <!-- Decorative Chrome Screws -->
+                                <circle cx="130" cy="7.5" r="3.2" fill="#e2e8f0" stroke="#334155" stroke-width="0.8"/>
+                                <line x1="128.5" y1="7.5" x2="131.5" y2="7.5" stroke="#334155" stroke-width="0.8"/>
+                                <circle cx="252.5" cy="130" r="3.2" fill="#e2e8f0" stroke="#334155" stroke-width="0.8"/>
+                                <line x1="252.5" y1="128.5" x2="252.5" y2="131.5" stroke="#334155" stroke-width="0.8"/>
+                                <circle cx="130" cy="252.5" r="3.2" fill="#e2e8f0" stroke="#334155" stroke-width="0.8"/>
+                                <line x1="128.5" y1="252.5" x2="131.5" y2="252.5" stroke="#334155" stroke-width="0.8"/>
+                                <circle cx="7.5" cy="130" r="3.2" fill="#e2e8f0" stroke="#334155" stroke-width="0.8"/>
+                                <line x1="7.5" y1="128.5" x2="7.5" y2="131.5" stroke="#334155" stroke-width="0.8"/>
+
+                                <!-- Inner Dark Dial Face Disc -->
+                                <circle cx="130" cy="130" r="112" fill="url(#compassBgGrad)" stroke="#0f172a" stroke-width="2"/>
+                                <circle cx="130" cy="130" r="110" fill="none" stroke="rgba(56, 189, 248, 0.35)" stroke-width="1.2"/>
 
                                 <!-- Fixed Top Heading Lubber Line / Reference Index Marker -->
-                                <polygon points="130,16 123,28 137,28" fill="#00f0ff" filter="url(#neonGlow)"/>
+                                <polygon points="130,14 122,26 138,26" fill="#00f0ff" filter="url(#neonGlow)"/>
 
                                 <!-- Rotating Compass Dial Card -->
                                 <g id="compass-dial-group" style="transform-origin: 130px 130px; transform: rotate(0deg); transition: transform 0.15s ease-out;">
-                                    <circle cx="130" cy="130" r="95" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1.8"/>
-                                    <circle cx="130" cy="130" r="76" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+                                    <circle cx="130" cy="130" r="95" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.8"/>
+                                    <circle cx="130" cy="130" r="76" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
                                     
                                     <!-- Degree Ticks -->
                                     <g class="gauge-ticks">
                                         <!-- Cardinal & Quadrant Major Ticks -->
-                                        <g stroke="#ffffff" stroke-width="2.5" opacity="0.95">
+                                        <g stroke="#ffffff" stroke-width="2.6" opacity="0.95">
                                             <line x1="130" y1="35" x2="130" y2="48" stroke="#ef4444" stroke-width="3.5"/>
                                             <line x1="197.2" y1="62.8" x2="188.0" y2="72.0"/>
                                             <line x1="225" y1="130" x2="212" y2="130"/>
@@ -536,7 +579,7 @@
                                             <line x1="62.8" y1="62.8" x2="72.0" y2="72.0"/>
                                         </g>
                                         <!-- Intermediate Minor Ticks (every 15 deg) -->
-                                        <g stroke="#94a3b8" stroke-width="1.4" opacity="0.7">
+                                        <g stroke="#e2e8f0" stroke-width="1.6" opacity="0.85">
                                             <line x1="154.6" y1="38.2" x2="152.0" y2="46.0"/>
                                             <line x1="177.5" y1="47.5" x2="173.0" y2="54.5"/>
                                             <line x1="212.5" y1="82.5" x2="205.5" y2="87.0"/>
@@ -556,39 +599,39 @@
                                         </g>
                                     </g>
 
-                                    <!-- Degree Numbers around compass ring -->
-                                    <g class="gauge-labels" fill="#94a3b8" font-family="'Outfit', sans-serif" font-size="9.5" font-weight="700">
-                                        <text x="130" y="66" transform="rotate(0, 130, 130)" text-anchor="middle" dominant-baseline="central">0°</text>
-                                        <text x="130" y="66" transform="rotate(30, 130, 130)" text-anchor="middle" dominant-baseline="central">30°</text>
-                                        <text x="130" y="66" transform="rotate(60, 130, 130)" text-anchor="middle" dominant-baseline="central">60°</text>
-                                        <text x="130" y="66" transform="rotate(90, 130, 130)" text-anchor="middle" dominant-baseline="central">90°</text>
-                                        <text x="130" y="66" transform="rotate(120, 130, 130)" text-anchor="middle" dominant-baseline="central">120°</text>
-                                        <text x="130" y="66" transform="rotate(150, 130, 130)" text-anchor="middle" dominant-baseline="central">150°</text>
-                                        <text x="130" y="66" transform="rotate(180, 130, 130)" text-anchor="middle" dominant-baseline="central">180°</text>
-                                        <text x="130" y="66" transform="rotate(210, 130, 130)" text-anchor="middle" dominant-baseline="central">210°</text>
-                                        <text x="130" y="66" transform="rotate(240, 130, 130)" text-anchor="middle" dominant-baseline="central">240°</text>
-                                        <text x="130" y="66" transform="rotate(270, 130, 130)" text-anchor="middle" dominant-baseline="central">270°</text>
-                                        <text x="130" y="66" transform="rotate(300, 130, 130)" text-anchor="middle" dominant-baseline="central">300°</text>
-                                        <text x="130" y="66" transform="rotate(330, 130, 130)" text-anchor="middle" dominant-baseline="central">330°</text>
+                                    <!-- Degree Numbers around compass ring - Vivid Bright Glowing White -->
+                                    <g class="gauge-labels" fill="#ffffff" font-family="'Outfit', sans-serif" font-size="11" font-weight="800">
+                                        <text x="130" y="65" transform="rotate(0, 130, 130)" text-anchor="middle" dominant-baseline="central">0°</text>
+                                        <text x="130" y="65" transform="rotate(30, 130, 130)" text-anchor="middle" dominant-baseline="central">30°</text>
+                                        <text x="130" y="65" transform="rotate(60, 130, 130)" text-anchor="middle" dominant-baseline="central">60°</text>
+                                        <text x="130" y="65" transform="rotate(90, 130, 130)" text-anchor="middle" dominant-baseline="central">90°</text>
+                                        <text x="130" y="65" transform="rotate(120, 130, 130)" text-anchor="middle" dominant-baseline="central">120°</text>
+                                        <text x="130" y="65" transform="rotate(150, 130, 130)" text-anchor="middle" dominant-baseline="central">150°</text>
+                                        <text x="130" y="65" transform="rotate(180, 130, 130)" text-anchor="middle" dominant-baseline="central">180°</text>
+                                        <text x="130" y="65" transform="rotate(210, 130, 130)" text-anchor="middle" dominant-baseline="central">210°</text>
+                                        <text x="130" y="65" transform="rotate(240, 130, 130)" text-anchor="middle" dominant-baseline="central">240°</text>
+                                        <text x="130" y="65" transform="rotate(270, 130, 130)" text-anchor="middle" dominant-baseline="central">270°</text>
+                                        <text x="130" y="65" transform="rotate(300, 130, 130)" text-anchor="middle" dominant-baseline="central">300°</text>
+                                        <text x="130" y="65" transform="rotate(330, 130, 130)" text-anchor="middle" dominant-baseline="central">330°</text>
                                     </g>
 
                                     <!-- Cardinal Points with High Contrast -->
                                     <g font-family="'Outfit', sans-serif" font-weight="800">
-                                        <text x="130" y="52" transform="rotate(0, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ef4444" font-size="14.5">S</text>
-                                        <text x="130" y="52" transform="rotate(45, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#38bdf8" font-size="10.5" font-weight="700">SV</text>
-                                        <text x="130" y="52" transform="rotate(90, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-size="14">V</text>
-                                        <text x="130" y="52" transform="rotate(135, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#38bdf8" font-size="10.5" font-weight="700">JV</text>
-                                        <text x="130" y="52" transform="rotate(180, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-size="14">J</text>
-                                        <text x="130" y="52" transform="rotate(225, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#38bdf8" font-size="10.5" font-weight="700">JZ</text>
-                                        <text x="130" y="52" transform="rotate(270, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-size="14">Z</text>
-                                        <text x="130" y="52" transform="rotate(315, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#38bdf8" font-size="10.5" font-weight="700">SZ</text>
+                                        <text x="130" y="52" transform="rotate(0, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ef4444" font-size="15.5">S</text>
+                                        <text x="130" y="52" transform="rotate(45, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#00f0ff" font-size="11.5" font-weight="800">SV</text>
+                                        <text x="130" y="52" transform="rotate(90, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-size="15">V</text>
+                                        <text x="130" y="52" transform="rotate(135, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#00f0ff" font-size="11.5" font-weight="800">JV</text>
+                                        <text x="130" y="52" transform="rotate(180, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-size="15">J</text>
+                                        <text x="130" y="52" transform="rotate(225, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#00f0ff" font-size="11.5" font-weight="800">JZ</text>
+                                        <text x="130" y="52" transform="rotate(270, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-size="15">Z</text>
+                                        <text x="130" y="52" transform="rotate(315, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#00f0ff" font-size="11.5" font-weight="800">SZ</text>
                                     </g>
                                 </g>
 
                                 <!-- GPS COG Course Arrow -->
                                 <g id="compass-needle-group" style="transform-origin: 130px 130px; transform: rotate(0deg); transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);">
-                                    <polygon points="130,30 123,54 137,54" fill="url(#headingNeedleGrad)" filter="url(#neonGlow)"/>
-                                    <polygon points="130,230 124,208 136,208" fill="rgba(255,255,255,0.4)"/>
+                                    <polygon points="130,28 122,54 138,54" fill="url(#headingNeedleGrad)" filter="url(#neonGlow)"/>
+                                    <polygon points="130,232 123,208 137,208" fill="rgba(255,255,255,0.5)"/>
                                 </g>
                             </svg>
 
@@ -752,8 +795,8 @@
     </div>
 
     <!-- Application Logic Scripts -->
-    <script src="Arcots.js?v=61"></script>
-    <script src="TideCalculator.js?v=61"></script>
-    <script src="index.js?v=61"></script>
+    <script src="Arcots.js?v=62"></script>
+    <script src="TideCalculator.js?v=62"></script>
+    <script src="index.js?v=62"></script>
 </body>
 </html>

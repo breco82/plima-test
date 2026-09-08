@@ -2839,6 +2839,7 @@ let cruiseTotalDistanceNm = 0;
 let cruiseMaxSpeedKnots = 0;
 let lastRecordedGpsPos = null;
 let cruiseWakeLock = null;
+let hasCenteredInitialGps = false;
 
 // Accurate Slovenian Coastline 200m Seaward Offset Buffer Chain (Dense ~100m points)
 const SLO_COAST_200M_GUIDE_NODES = [
@@ -3198,7 +3199,158 @@ function copyTextToClipboard(text) {
 }
 window.shareCurrentLocation = shareCurrentLocation;
 
-// Start GPS hardware tracking with high accuracy
+// Local Vector Bathymetry Dataset (Isobaths 2m - 30m & Soundings for Slovenian Waters)
+const SLO_BATHYMETRY_ISOBATHS = [
+    // 2m Isobath (Shallows & coastal shelf)
+    {
+        depth: 2,
+        color: '#38bdf8',
+        weight: 1.5,
+        dashArray: '4, 4',
+        coords: [
+            [45.5975, 13.7210], [45.5915, 13.6995], [45.5895, 13.6955], [45.5845, 13.7120],
+            [45.5780, 13.7310], [45.5580, 13.7320], [45.5490, 13.7220], [45.5450, 13.7080],
+            [45.5400, 13.6780], [45.5430, 13.6540], [45.5350, 13.6440], [45.5365, 13.6270],
+            [45.5395, 13.6060], [45.5310, 13.6000], [45.5265, 13.5840], [45.5268, 13.5750],
+            [45.5305, 13.5635], [45.5275, 13.5670], [45.5190, 13.5700], [45.5135, 13.5850],
+            [45.5035, 13.5940], [45.4980, 13.5890], [45.4855, 13.5990]
+        ]
+    },
+    // 5m Isobath
+    {
+        depth: 5,
+        color: '#00f0ff',
+        weight: 1.8,
+        dashArray: null,
+        coords: [
+            [45.5990, 13.7180], [45.5930, 13.6960], [45.5880, 13.6930], [45.5815, 13.7170],
+            [45.5720, 13.7300], [45.5580, 13.7250], [45.5505, 13.7170], [45.5460, 13.7040],
+            [45.5415, 13.6750], [45.5445, 13.6520], [45.5375, 13.6420], [45.5385, 13.6250],
+            [45.5415, 13.6040], [45.5330, 13.5960], [45.5280, 13.5820], [45.5285, 13.5720],
+            [45.5320, 13.5615], [45.5260, 13.5640], [45.5175, 13.5680], [45.5115, 13.5820],
+            [45.5015, 13.5900], [45.4960, 13.5860], [45.4850, 13.5940]
+        ]
+    },
+    // 10m Isobath
+    {
+        depth: 10,
+        color: '#0284c7',
+        weight: 2.2,
+        dashArray: null,
+        coords: [
+            [45.6020, 13.7120], [45.5960, 13.6880], [45.5860, 13.6880], [45.5780, 13.7100],
+            [45.5680, 13.7200], [45.5580, 13.7180], [45.5510, 13.7080], [45.5465, 13.6900],
+            [45.5440, 13.6680], [45.5475, 13.6480], [45.5410, 13.6350], [45.5415, 13.6200],
+            [45.5440, 13.6000], [45.5360, 13.5900], [45.5305, 13.5780], [45.5308, 13.5680],
+            [45.5345, 13.5580], [45.5250, 13.5580], [45.5150, 13.5620], [45.5080, 13.5750],
+            [45.4980, 13.5820], [45.4850, 13.5880]
+        ]
+    },
+    // 15m Isobath
+    {
+        depth: 15,
+        color: '#0369a1',
+        weight: 2.0,
+        dashArray: null,
+        coords: [
+            [45.6060, 13.7050], [45.5990, 13.6780], [45.5840, 13.6760], [45.5720, 13.6950],
+            [45.5600, 13.7020], [45.5530, 13.6850], [45.5480, 13.6550], [45.5490, 13.6380],
+            [45.5450, 13.6100], [45.5460, 13.5920], [45.5380, 13.5780], [45.5340, 13.5620],
+            [45.5365, 13.5520], [45.5230, 13.5500], [45.5120, 13.5520], [45.5020, 13.5650],
+            [45.4850, 13.5750]
+        ]
+    },
+    // 20m Isobath (Trieste Gulf Deep Channel)
+    {
+        depth: 20,
+        color: '#075985',
+        weight: 2.0,
+        dashArray: null,
+        coords: [
+            [45.6120, 13.6950], [45.6020, 13.6650], [45.5850, 13.6550], [45.5700, 13.6700],
+            [45.5580, 13.6550], [45.5520, 13.6200], [45.5490, 13.5850], [45.5420, 13.5600],
+            [45.5380, 13.5450], [45.5220, 13.5420], [45.5080, 13.5450], [45.4850, 13.5600]
+        ]
+    },
+    // 25m Isobath
+    {
+        depth: 25,
+        color: '#0c4a6e',
+        weight: 1.8,
+        dashArray: null,
+        coords: [
+            [45.6180, 13.6800], [45.6050, 13.6450], [45.5880, 13.6300], [45.5720, 13.6350],
+            [45.5580, 13.6000], [45.5520, 13.5650], [45.5450, 13.5350], [45.5250, 13.5300],
+            [45.5000, 13.5350], [45.4850, 13.5450]
+        ]
+    }
+];
+
+const SLO_BATHYMETRY_SOUNDINGS = [
+    { label: '1.6m', lat: 45.5910, lon: 13.6980, name: 'Debeli rtič greben' },
+    { label: '4.5m', lat: 45.5830, lon: 13.7140, name: 'Valdoltra' },
+    { label: '7.2m', lat: 45.5720, lon: 13.7250, name: 'Ankaran zaliv' },
+    { label: '14.5m', lat: 45.5560, lon: 13.7220, name: 'Luka Koper plovni kanal' },
+    { label: '4.2m', lat: 45.5490, lon: 13.7170, name: 'Koper Mandrač' },
+    { label: '2.4m', lat: 45.5450, lon: 13.7050, name: 'Žusterna' },
+    { label: '6.5m', lat: 45.5410, lon: 13.6760, name: 'Viližan' },
+    { label: '5.2m', lat: 45.5450, lon: 13.6520, name: 'Izola severni greben' },
+    { label: '4.0m', lat: 45.5420, lon: 13.6560, name: 'Izola marina vstop' },
+    { label: '3.1m', lat: 45.5360, lon: 13.6420, name: 'Simonov zaliv' },
+    { label: '8.5m', lat: 45.5390, lon: 13.6260, name: 'Bele skale' },
+    { label: '14.0m', lat: 45.5420, lon: 13.6050, name: 'Rt Ronek klif' },
+    { label: '6.8m', lat: 45.5370, lon: 13.6000, name: 'Mesečev zaliv' },
+    { label: '2.8m', lat: 45.5320, lon: 13.5960, name: 'Strunjan soline vhod' },
+    { label: '5.0m', lat: 45.5280, lon: 13.5820, name: 'Pacug' },
+    { label: '6.2m', lat: 45.5280, lon: 13.5720, name: 'Fiesa' },
+    { label: '2.1m', lat: 45.5295, lon: 13.5640, name: 'Punta Piran greben' },
+    { label: '6.5m', lat: 45.5315, lon: 13.5600, name: 'Punta Piran bojna linija' },
+    { label: '4.8m', lat: 45.5260, lon: 13.5660, name: 'Piran mandrač vhod' },
+    { label: '5.5m', lat: 45.5160, lon: 13.5680, name: 'Bernardin pomol' },
+    { label: '2.6m', lat: 45.5130, lon: 13.5820, name: 'Portorož centralna plaža' },
+    { label: '3.5m', lat: 45.5020, lon: 13.5920, name: 'Marina Portorož vhod' },
+    { label: '2.2m', lat: 45.4970, lon: 13.5870, name: 'Rt Seča greben' },
+    { label: '16.5m', lat: 45.5100, lon: 13.5450, name: 'Piranski zaliv sredina' },
+    { label: '19.2m', lat: 45.5650, lon: 13.6700, name: 'Koprski zaliv sredina' },
+    { label: '26.8m', lat: 45.5450, lon: 13.5400, name: 'Odprto morje pred Piranom' }
+];
+
+let depthVectorLayerGroup = null;
+
+function buildBathymetryLayer() {
+    if (depthVectorLayerGroup) return depthVectorLayerGroup;
+    depthVectorLayerGroup = L.layerGroup([], { pane: 'depthPane' });
+
+    // 1. Isobath Lines
+    SLO_BATHYMETRY_ISOBATHS.forEach(iso => {
+        const poly = L.polyline(iso.coords, {
+            color: iso.color,
+            weight: iso.weight,
+            dashArray: iso.dashArray,
+            opacity: 0.85,
+            pane: 'depthPane'
+        });
+        poly.bindPopup(`<b>Izobata ${iso.depth} m</b><br>Globinska črta slovenskega morja`);
+        depthVectorLayerGroup.addLayer(poly);
+    });
+
+    // 2. Sounding Badges
+    SLO_BATHYMETRY_SOUNDINGS.forEach(snd => {
+        const icon = L.divIcon({
+            className: 'bathy-sounding-divicon',
+            html: `<div class="bathy-sounding-badge">${snd.label}</div>`,
+            iconSize: [36, 18],
+            iconAnchor: [18, 9]
+        });
+        const marker = L.marker([snd.lat, snd.lon], { icon: icon, pane: 'depthPane' });
+        marker.bindPopup(`<b>${snd.name}</b><br>Globina morja: <b>${snd.label}</b>`);
+        depthVectorLayerGroup.addLayer(marker);
+    });
+
+    return depthVectorLayerGroup;
+}
+
+// Start GPS hardware tracking with immediate fallback and high accuracy
 function startGpsNavigation(isUserGesture = false) {
     const banner = document.getElementById('nav-status-banner');
     const bannerText = document.getElementById('nav-status-text');
@@ -3229,18 +3381,29 @@ function startGpsNavigation(isUserGesture = false) {
         gpsWatchId = null;
     }
 
-    const options = {
-        enableHighAccuracy: true,
-        maximumAge: 1000,
-        timeout: 15000
-    };
+    // Stage 1: Fast initial location (Wi-Fi/Cell)
+    navigator.geolocation.getCurrentPosition(
+        updateGpsUI,
+        () => {},
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+    );
 
+    // Stage 2: High accuracy satellite GPS fix
     if (isUserGesture) {
-        navigator.geolocation.getCurrentPosition(updateGpsUI, handleGpsError, { enableHighAccuracy: true, timeout: 10000 });
+        navigator.geolocation.getCurrentPosition(
+            updateGpsUI,
+            handleGpsError,
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
     }
 
+    // Continuous watch with high accuracy
     try {
-        gpsWatchId = navigator.geolocation.watchPosition(updateGpsUI, handleGpsError, options);
+        gpsWatchId = navigator.geolocation.watchPosition(
+            updateGpsUI,
+            handleGpsError,
+            { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
+        );
     } catch (e) {
         console.warn('Geolocation error starting watch:', e);
     }
@@ -3305,7 +3468,6 @@ function initNavMap() {
 
     const depthPane = navMap.createPane('depthPane');
     depthPane.style.zIndex = '420';
-    depthPane.style.pointerEvents = 'none';
 
     // Base Tile Layers
     navMapLayers.osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -3397,27 +3559,18 @@ function setNavMapLayer(layerType) {
 }
 window.setNavMapLayer = setNavMapLayer;
 
-// Toggle Bathymetry Depth Contours
+// Toggle Bathymetry Depth Contours & Soundings
 function toggleDepthContours() {
     if (!navMap) initNavMap();
     showDepthContours = !showDepthContours;
     const btn = document.getElementById('pill-layer-depth');
     if (btn) btn.classList.toggle('active', showDepthContours);
 
+    const bathyLayer = buildBathymetryLayer();
     if (showDepthContours) {
-        if (!depthWmsLayer) {
-            depthWmsLayer = L.tileLayer.wms('https://ows.emodnet-bathymetry.eu/wms', {
-                layers: 'emodnet:contours',
-                format: 'image/png',
-                transparent: true,
-                maxZoom: 18,
-                opacity: 0.85,
-                pane: 'depthPane'
-            });
-        }
-        depthWmsLayer.addTo(navMap);
-    } else if (depthWmsLayer && navMap.hasLayer(depthWmsLayer)) {
-        navMap.removeLayer(depthWmsLayer);
+        bathyLayer.addTo(navMap);
+    } else if (navMap.hasLayer(bathyLayer)) {
+        navMap.removeLayer(bathyLayer);
     }
 }
 window.toggleDepthContours = toggleDepthContours;
@@ -3466,9 +3619,12 @@ document.addEventListener('fullscreenchange', () => {
 function centerMapOnBoat() {
     if (!navMap) initNavMap();
     if (lastGpsCoords && navMap) {
-        navMap.setView([lastGpsCoords.latitude, lastGpsCoords.longitude], 14, { animate: true });
-    } else if (navMap) {
-        navMap.setView([45.545, 13.650], 12, { animate: true });
+        navMap.setView([lastGpsCoords.latitude, lastGpsCoords.longitude], 15, { animate: true });
+    } else {
+        startGpsNavigation(true);
+        if (navMap) {
+            navMap.setView([45.545, 13.650], 12, { animate: true });
+        }
     }
 }
 window.centerMapOnBoat = centerMapOnBoat;
@@ -4227,11 +4383,21 @@ function updateGpsUI(pos) {
     if (latValEl) latValEl.textContent = formatNauticalCoord(coords.latitude, true);
     if (lonValEl) lonValEl.textContent = formatNauticalCoord(coords.longitude, false);
 
+    // Auto-center map on initial GPS fix
+    if (!hasCenteredInitialGps && navMap) {
+        navMap.setView([coords.latitude, coords.longitude], 15, { animate: true });
+        hasCenteredInitialGps = true;
+    }
+
     // Update GPS Start point in planner if start is set to GPS
     const startWp = routeWaypoints.find(w => w.type === 'start');
     if (startWp && startWp.isGps) {
         startWp.lat = coords.latitude;
         startWp.lon = coords.longitude;
+        const startTextEl = document.getElementById('wp-text-start');
+        if (startTextEl && activeWaypointTargetId !== 'start') {
+            startTextEl.textContent = 'Moja lokacija (' + formatNauticalCoord(coords.latitude, true) + ', ' + formatNauticalCoord(coords.longitude, false) + ')';
+        }
     }
 
     // 4. MAP BOAT MARKER UPDATE
