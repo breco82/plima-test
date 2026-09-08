@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- CSS Stylesheet -->
-    <link rel="stylesheet" href="index.css?v=60">
+    <link rel="stylesheet" href="index.css?v=61">
     <link rel="manifest" href="manifest.json">
     
     <!-- Leaflet Nautical Map CSS & JS -->
@@ -390,7 +390,7 @@
 
                 <!-- Enlarged Gauges Grid -->
                 <div class="nav-gauges-grid">
-                    <!-- Prikazovalnik 1: Hitrost plovbe (SOG do 20 vozlov) -->
+                    <!-- Prikazovalnik 1: Hitrost plovbe (SOG do 20 vozlov) - Modern Marine Glass Cockpit -->
                     <div class="gauge-card">
                         <div class="gauge-card-header">
                             <span class="gauge-card-title"><i class="fa-solid fa-gauge-high"></i> Hitrost plovbe (SOG)</span>
@@ -398,65 +398,87 @@
                         <div class="gauge-display-box">
                             <svg viewBox="0 0 260 260" class="marine-gauge-svg">
                                 <defs>
-                                    <linearGradient id="speedArcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                                        <stop offset="0%" stop-color="#0ea5e9"/>
-                                        <stop offset="65%" stop-color="#22c55e"/>
-                                        <stop offset="100%" stop-color="#f59e0b"/>
+                                    <!-- Dial face radial background -->
+                                    <radialGradient id="gaugeBgGrad" cx="50%" cy="50%" r="50%">
+                                        <stop offset="0%" stop-color="#1e293b"/>
+                                        <stop offset="85%" stop-color="#0f172a"/>
+                                        <stop offset="100%" stop-color="#020617"/>
+                                    </radialGradient>
+                                    <!-- Neon Speed Arc Gradient -->
+                                    <linearGradient id="speedArcGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                                        <stop offset="0%" stop-color="#00f0ff"/>
+                                        <stop offset="45%" stop-color="#10b981"/>
+                                        <stop offset="75%" stop-color="#f59e0b"/>
+                                        <stop offset="100%" stop-color="#ef4444"/>
                                     </linearGradient>
-                                    <filter id="gaugeGlow" x="-20%" y="-20%" width="140%" height="140%">
-                                        <feGaussianBlur stdDeviation="3" result="blur" />
-                                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                                    <!-- Neon Glow Filter -->
+                                    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+                                        <feGaussianBlur stdDeviation="3.5" result="blur"/>
+                                        <feComposite in="SourceGraphic" in2="blur" operator="over"/>
                                     </filter>
                                 </defs>
-                                <!-- Background track arc (270 deg from 135 to 405) -->
-                                <path d="M 62.8 197.2 A 95 95 0 1 1 197.2 197.2" fill="none" stroke="var(--border-color)" stroke-width="8" stroke-linecap="round"/>
-                                <!-- Active Speed Arc Fill -->
-                                <path id="speed-gauge-arc" d="M 62.8 197.2 A 95 95 0 1 1 197.2 197.2" fill="none" stroke="url(#speedArcGrad)" stroke-width="8" stroke-linecap="round" stroke-dasharray="447.67" stroke-dashoffset="447.67" style="transition: stroke-dashoffset 0.4s ease-out;"/>
+
+                                <!-- Instrument Dial Face Disc -->
+                                <circle cx="130" cy="130" r="118" fill="url(#gaugeBgGrad)" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+                                <circle cx="130" cy="130" r="114" fill="none" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1.2"/>
+                                <circle cx="130" cy="130" r="95" fill="none" stroke="rgba(255, 255, 255, 0.05)" stroke-width="1"/>
+
+                                <!-- Background Track Arc (270 deg from 135 to 405) -->
+                                <path d="M 62.8 197.2 A 95 95 0 1 1 197.2 197.2" fill="none" stroke="rgba(255, 255, 255, 0.12)" stroke-width="10" stroke-linecap="round"/>
+                                
+                                <!-- Active Speed Arc Fill with Neon Glow -->
+                                <path id="speed-gauge-arc" d="M 62.8 197.2 A 95 95 0 1 1 197.2 197.2" fill="none" stroke="url(#speedArcGrad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="447.67" stroke-dashoffset="447.67" style="transition: stroke-dashoffset 0.4s ease-out;"/>
                                 
                                 <!-- Scale Ticks (Every 1 knot) -->
-                                <g class="gauge-ticks" stroke="var(--text-secondary)">
-                                    <line x1='62.8' y1='197.2' x2='70.6' y2='189.4' stroke-width='2.5' opacity='0.9'/>
-                                    <line x1='49' y1='179.6' x2='54.1' y2='176.5' stroke-width='1.2' opacity='0.5'/>
-                                    <line x1='39.6' y1='159.4' x2='50.1' y2='156' stroke-width='2.5' opacity='0.9'/>
-                                    <line x1='35.3' y1='137.5' x2='41.3' y2='137' stroke-width='1.2' opacity='0.5'/>
-                                    <line x1='36.2' y1='115.1' x2='47' y2='116.9' stroke-width='2.5' opacity='0.9'/>
-                                    <line x1='42.2' y1='93.6' x2='47.8' y2='95.9' stroke-width='1.2' opacity='0.5'/>
-                                    <line x1='53.1' y1='74.2' x2='62' y2='80.6' stroke-width='2.5' opacity='0.9'/>
-                                    <line x1='68.3' y1='57.8' x2='72.2' y2='62.3' stroke-width='1.2' opacity='0.5'/>
-                                    <line x1='86.9' y1='45.4' x2='91.9' y2='55.2' stroke-width='2.5' opacity='0.9'/>
-                                    <line x1='107.8' y1='37.6' x2='109.2' y2='43.5' stroke-width='1.2' opacity='0.5'/>
-                                    <line x1='130' y1='35' x2='130' y2='46' stroke-width='2.5' opacity='0.9'/>
-                                    <line x1='152.2' y1='37.6' x2='150.8' y2='43.5' stroke-width='1.2' opacity='0.5'/>
-                                    <line x1='173.1' y1='45.4' x2='168.1' y2='55.2' stroke-width='2.5' opacity='0.9'/>
-                                    <line x1='191.7' y1='57.8' x2='187.8' y2='62.3' stroke-width='1.2' opacity='0.5'/>
-                                    <line x1='206.9' y1='74.2' x2='198' y2='80.6' stroke-width='2.5' opacity='0.9'/>
-                                    <line x1='217.8' y1='93.6' x2='212.2' y2='95.9' stroke-width='1.2' opacity='0.5'/>
-                                    <line x1='223.8' y1='115.1' x2='213' y2='116.9' stroke-width='2.5' opacity='0.9'/>
-                                    <line x1='224.7' y1='137.5' x2='218.7' y2='137' stroke-width='1.2' opacity='0.5'/>
-                                    <line x1='220.4' y1='159.4' x2='209.9' y2='156' stroke-width='2.5' opacity='0.9'/>
-                                    <line x1='211' y1='179.6' x2='205.9' y2='176.5' stroke-width='1.2' opacity='0.5'/>
-                                    <line x1='197.2' y1='197.2' x2='189.4' y2='189.4' stroke-width='2.5' opacity='0.9'/>
+                                <g class="gauge-ticks">
+                                    <!-- Major ticks (every 2 knots) -->
+                                    <g stroke="#ffffff" stroke-width="2.8" opacity="0.95">
+                                        <line x1='62.8' y1='197.2' x2='72.0' y2='188.0'/>
+                                        <line x1='39.6' y1='159.4' x2='51.0' y2='155.7'/>
+                                        <line x1='36.2' y1='115.1' x2='48.0' y2='117.0'/>
+                                        <line x1='53.1' y1='74.2' x2='63.0' y2='81.0'/>
+                                        <line x1='86.9' y1='45.4' x2='93.0' y2='56.0'/>
+                                        <line x1='130' y1='35' x2='130' y2='48'/>
+                                        <line x1='173.1' y1='45.4' x2='167.0' y2='56.0'/>
+                                        <line x1='206.9' y1='74.2' x2='197.0' y2='81.0'/>
+                                        <line x1='223.8' y1='115.1' x2='212.0' y2='117.0'/>
+                                        <line x1='220.4' y1='159.4' x2='209.0' y2='155.7'/>
+                                        <line x1='197.2' y1='197.2' x2='188.0' y2='188.0'/>
+                                    </g>
+                                    <!-- Minor ticks (every 1 knot) -->
+                                    <g stroke="#94a3b8" stroke-width="1.5" opacity="0.65">
+                                        <line x1='49' y1='179.6' x2='55.5' y2='176.0'/>
+                                        <line x1='35.3' y1='137.5' x2='42.5' y2='137.5'/>
+                                        <line x1='42.2' y1='93.6' x2='48.8' y2='96.5'/>
+                                        <line x1='68.3' y1='57.8' x2='73.0' y2='63.0'/>
+                                        <line x1='107.8' y1='37.6' x2='109.5' y2='44.5'/>
+                                        <line x1='152.2' y1='37.6' x2='150.5' y2='44.5'/>
+                                        <line x1='191.7' y1='57.8' x2='187.0' y2='63.0'/>
+                                        <line x1='217.8' y1='93.6' x2='211.2' y2='96.5'/>
+                                        <line x1='224.7' y1='137.5' x2='217.5' y2='137.5'/>
+                                        <line x1='211' y1='179.6' x2='204.5' y2='176.0'/>
+                                    </g>
                                 </g>
 
                                 <!-- Number Labels (Every 2 knots) -->
-                                <g class="gauge-labels" fill="var(--text-secondary)" font-family="var(--font-heading)" font-size="11" font-weight="700">
-                                    <text x='80.5' y='179.5' text-anchor='middle' dominant-baseline='central'>0</text>
-                                    <text x='63.4' y='151.6' text-anchor='middle' dominant-baseline='central'>2</text>
-                                    <text x='60.9' y='119' text-anchor='middle' dominant-baseline='central'>4</text>
-                                    <text x='73.4' y='88.9' text-anchor='middle' dominant-baseline='central'>6</text>
-                                    <text x='98.2' y='67.6' text-anchor='middle' dominant-baseline='central'>8</text>
-                                    <text x='130' y='60' text-anchor='middle' dominant-baseline='central'>10</text>
-                                    <text x='161.8' y='67.6' text-anchor='middle' dominant-baseline='central'>12</text>
-                                    <text x='186.6' y='88.9' text-anchor='middle' dominant-baseline='central'>14</text>
-                                    <text x='199.1' y='119' text-anchor='middle' dominant-baseline='central'>16</text>
-                                    <text x='196.6' y='151.6' text-anchor='middle' dominant-baseline='central'>18</text>
-                                    <text x='179.5' y='179.5' text-anchor='middle' dominant-baseline='central'>20</text>
+                                <g class="gauge-labels" fill="#f8fafc" font-family="'Outfit', sans-serif" font-size="12.5" font-weight="800">
+                                    <text x='81' y='178' text-anchor='middle' dominant-baseline='central'>0</text>
+                                    <text x='62' y='149' text-anchor='middle' dominant-baseline='central'>2</text>
+                                    <text x='60' y='116' text-anchor='middle' dominant-baseline='central'>4</text>
+                                    <text x='74' y='86' text-anchor='middle' dominant-baseline='central'>6</text>
+                                    <text x='99' y='65' text-anchor='middle' dominant-baseline='central'>8</text>
+                                    <text x='130' y='57' text-anchor='middle' dominant-baseline='central'>10</text>
+                                    <text x='161' y='65' text-anchor='middle' dominant-baseline='central'>12</text>
+                                    <text x='186' y='86' text-anchor='middle' dominant-baseline='central'>14</text>
+                                    <text x='200' y='116' text-anchor='middle' dominant-baseline='central'>16</text>
+                                    <text x='198' y='149' text-anchor='middle' dominant-baseline='central'>18</text>
+                                    <text x='179' y='178' text-anchor='middle' dominant-baseline='central'>20</text>
                                 </g>
 
                                 <!-- Sleek Outer Speed Pointer -->
                                 <g id="speed-needle-group" style="transform-origin: 130px 130px; transform: rotate(-135deg); transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);">
-                                    <polygon points="130,42 125,60 135,60" fill="#38bdf8" filter="url(#gaugeGlow)"/>
-                                    <circle cx="130" cy="50" r="2.5" fill="#ffffff"/>
+                                    <polygon points="130,32 124,54 136,54" fill="#00f0ff" filter="url(#neonGlow)"/>
+                                    <circle cx="130" cy="43" r="3" fill="#ffffff"/>
                                 </g>
                             </svg>
 
@@ -469,91 +491,110 @@
                         </div>
                     </div>
 
-                    <!-- Prikazovalnik 2: Smer plovbe (COG / Hibridni Kompas) -->
+                    <!-- Prikazovalnik 2: Smer plovbe (COG / Hibridni Kompas) - Modern Marine Glass Cockpit -->
                     <div class="gauge-card">
                         <div class="gauge-card-header">
                             <span class="gauge-card-title"><i class="fa-solid fa-compass"></i> Smer plovbe (COG)</span>
                         </div>
                         <div class="gauge-display-box">
                             <svg viewBox="0 0 260 260" class="marine-gauge-svg">
-                                <!-- Top Reference Index Marker -->
-                                <polygon points="130,22 125,31 135,31" fill="#38bdf8" opacity="0.9"/>
+                                <defs>
+                                    <radialGradient id="compassBgGrad" cx="50%" cy="50%" r="50%">
+                                        <stop offset="0%" stop-color="#1e293b"/>
+                                        <stop offset="85%" stop-color="#0f172a"/>
+                                        <stop offset="100%" stop-color="#020617"/>
+                                    </radialGradient>
+                                    <linearGradient id="headingNeedleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                                        <stop offset="0%" stop-color="#ef4444"/>
+                                        <stop offset="100%" stop-color="#f97316"/>
+                                    </linearGradient>
+                                </defs>
 
-                                <!-- Rotating Compass Dial Group -->
+                                <!-- Instrument Dial Face Disc -->
+                                <circle cx="130" cy="130" r="118" fill="url(#compassBgGrad)" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+                                <circle cx="130" cy="130" r="114" fill="none" stroke="rgba(56, 189, 248, 0.25)" stroke-width="1.2"/>
+
+                                <!-- Fixed Top Heading Lubber Line / Reference Index Marker -->
+                                <polygon points="130,16 123,28 137,28" fill="#00f0ff" filter="url(#neonGlow)"/>
+
+                                <!-- Rotating Compass Dial Card -->
                                 <g id="compass-dial-group" style="transform-origin: 130px 130px; transform: rotate(0deg); transition: transform 0.15s ease-out;">
-                                    <circle cx="130" cy="130" r="95" fill="none" stroke="var(--border-color)" stroke-width="2"/>
+                                    <circle cx="130" cy="130" r="95" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1.8"/>
+                                    <circle cx="130" cy="130" r="76" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
                                     
                                     <!-- Degree Ticks -->
-                                    <g class="gauge-ticks" stroke="var(--text-secondary)">
-                                        <g stroke-width="2" opacity="0.9">
-                                            <line x1="130" y1="35" x2="130" y2="47" stroke="#ef4444" stroke-width="3"/>
-                                            <line x1="197.2" y1="62.8" x2="188.7" y2="71.3"/>
-                                            <line x1="225" y1="130" x2="213" y2="130"/>
-                                            <line x1="197.2" y1="197.2" x2="188.7" y2="188.7"/>
-                                            <line x1="130" y1="225" x2="130" y2="213"/>
-                                            <line x1="62.8" y1="197.2" x2="71.3" y2="188.7"/>
-                                            <line x1="35" y1="130" x2="47" y2="130"/>
-                                            <line x1="62.8" y1="62.8" x2="71.3" y2="71.3"/>
+                                    <g class="gauge-ticks">
+                                        <!-- Cardinal & Quadrant Major Ticks -->
+                                        <g stroke="#ffffff" stroke-width="2.5" opacity="0.95">
+                                            <line x1="130" y1="35" x2="130" y2="48" stroke="#ef4444" stroke-width="3.5"/>
+                                            <line x1="197.2" y1="62.8" x2="188.0" y2="72.0"/>
+                                            <line x1="225" y1="130" x2="212" y2="130"/>
+                                            <line x1="197.2" y1="197.2" x2="188.0" y2="188.0"/>
+                                            <line x1="130" y1="225" x2="130" y2="212"/>
+                                            <line x1="62.8" y1="197.2" x2="72.0" y2="188.0"/>
+                                            <line x1="35" y1="130" x2="48" y2="130"/>
+                                            <line x1="62.8" y1="62.8" x2="72.0" y2="72.0"/>
                                         </g>
-                                        <g stroke-width="1.2" opacity="0.6">
-                                            <line x1="154.6" y1="38.2" x2="152.8" y2="45.1"/>
-                                            <line x1="177.5" y1="47.5" x2="174" y2="53.6"/>
-                                            <line x1="212.5" y1="82.5" x2="206.4" y2="86"/>
-                                            <line x1="221.8" y1="105.4" x2="214.9" y2="107.2"/>
-                                            <line x1="221.8" y1="154.6" x2="214.9" y2="152.8"/>
-                                            <line x1="212.5" y1="177.5" x2="206.4" y2="174"/>
-                                            <line x1="177.5" y1="212.5" x2="174" y2="206.4"/>
-                                            <line x1="154.6" y1="221.8" x2="152.8" y2="214.9"/>
-                                            <line x1="105.4" y1="221.8" x2="107.2" y2="214.9"/>
-                                            <line x1="82.5" y1="212.5" x2="86" y2="206.4"/>
-                                            <line x1="47.5" y1="177.5" x2="53.6" y2="174"/>
-                                            <line x1="38.2" y1="154.6" x2="45.1" y2="152.8"/>
-                                            <line x1="38.2" y1="105.4" x2="45.1" y2="107.2"/>
-                                            <line x1="47.5" y1="82.5" x2="53.6" y2="86"/>
-                                            <line x1="82.5" y1="47.5" x2="86" y2="53.6"/>
-                                            <line x1="105.4" y1="38.2" x2="107.2" y2="45.1"/>
+                                        <!-- Intermediate Minor Ticks (every 15 deg) -->
+                                        <g stroke="#94a3b8" stroke-width="1.4" opacity="0.7">
+                                            <line x1="154.6" y1="38.2" x2="152.0" y2="46.0"/>
+                                            <line x1="177.5" y1="47.5" x2="173.0" y2="54.5"/>
+                                            <line x1="212.5" y1="82.5" x2="205.5" y2="87.0"/>
+                                            <line x1="221.8" y1="105.4" x2="214.0" y2="108.0"/>
+                                            <line x1="221.8" y1="154.6" x2="214.0" y2="152.0"/>
+                                            <line x1="212.5" y1="177.5" x2="205.5" y2="173.0"/>
+                                            <line x1="177.5" y1="212.5" x2="173.0" y2="205.5"/>
+                                            <line x1="154.6" y1="221.8" x2="152.0" y2="214.0"/>
+                                            <line x1="105.4" y1="221.8" x2="108.0" y2="214.0"/>
+                                            <line x1="82.5" y1="212.5" x2="87.0" y2="205.5"/>
+                                            <line x1="47.5" y1="177.5" x2="54.5" y2="173.0"/>
+                                            <line x1="38.2" y1="154.6" x2="46.0" y2="152.0"/>
+                                            <line x1="38.2" y1="105.4" x2="46.0" y2="108.0"/>
+                                            <line x1="47.5" y1="82.5" x2="54.5" y2="87.0"/>
+                                            <line x1="82.5" y1="47.5" x2="87.0" y2="54.5"/>
+                                            <line x1="105.4" y1="38.2" x2="108.0" y2="46.0"/>
                                         </g>
                                     </g>
 
-                                    <!-- Degree Numbers radially aligned around circle -->
-                                    <g class="gauge-labels" fill="var(--text-secondary)" font-family="var(--font-heading)" font-size="8.5" font-weight="600" opacity="0.8">
-                                        <text x="130" y="67" transform="rotate(0, 130, 130)" text-anchor="middle" dominant-baseline="central">0°</text>
-                                        <text x="130" y="67" transform="rotate(30, 130, 130)" text-anchor="middle" dominant-baseline="central">30°</text>
-                                        <text x="130" y="67" transform="rotate(60, 130, 130)" text-anchor="middle" dominant-baseline="central">60°</text>
-                                        <text x="130" y="67" transform="rotate(90, 130, 130)" text-anchor="middle" dominant-baseline="central">90°</text>
-                                        <text x="130" y="67" transform="rotate(120, 130, 130)" text-anchor="middle" dominant-baseline="central">120°</text>
-                                        <text x="130" y="67" transform="rotate(150, 130, 130)" text-anchor="middle" dominant-baseline="central">150°</text>
-                                        <text x="130" y="67" transform="rotate(180, 130, 130)" text-anchor="middle" dominant-baseline="central">180°</text>
-                                        <text x="130" y="67" transform="rotate(210, 130, 130)" text-anchor="middle" dominant-baseline="central">210°</text>
-                                        <text x="130" y="67" transform="rotate(240, 130, 130)" text-anchor="middle" dominant-baseline="central">240°</text>
-                                        <text x="130" y="67" transform="rotate(270, 130, 130)" text-anchor="middle" dominant-baseline="central">270°</text>
-                                        <text x="130" y="67" transform="rotate(300, 130, 130)" text-anchor="middle" dominant-baseline="central">300°</text>
-                                        <text x="130" y="67" transform="rotate(330, 130, 130)" text-anchor="middle" dominant-baseline="central">330°</text>
+                                    <!-- Degree Numbers around compass ring -->
+                                    <g class="gauge-labels" fill="#94a3b8" font-family="'Outfit', sans-serif" font-size="9.5" font-weight="700">
+                                        <text x="130" y="66" transform="rotate(0, 130, 130)" text-anchor="middle" dominant-baseline="central">0°</text>
+                                        <text x="130" y="66" transform="rotate(30, 130, 130)" text-anchor="middle" dominant-baseline="central">30°</text>
+                                        <text x="130" y="66" transform="rotate(60, 130, 130)" text-anchor="middle" dominant-baseline="central">60°</text>
+                                        <text x="130" y="66" transform="rotate(90, 130, 130)" text-anchor="middle" dominant-baseline="central">90°</text>
+                                        <text x="130" y="66" transform="rotate(120, 130, 130)" text-anchor="middle" dominant-baseline="central">120°</text>
+                                        <text x="130" y="66" transform="rotate(150, 130, 130)" text-anchor="middle" dominant-baseline="central">150°</text>
+                                        <text x="130" y="66" transform="rotate(180, 130, 130)" text-anchor="middle" dominant-baseline="central">180°</text>
+                                        <text x="130" y="66" transform="rotate(210, 130, 130)" text-anchor="middle" dominant-baseline="central">210°</text>
+                                        <text x="130" y="66" transform="rotate(240, 130, 130)" text-anchor="middle" dominant-baseline="central">240°</text>
+                                        <text x="130" y="66" transform="rotate(270, 130, 130)" text-anchor="middle" dominant-baseline="central">270°</text>
+                                        <text x="130" y="66" transform="rotate(300, 130, 130)" text-anchor="middle" dominant-baseline="central">300°</text>
+                                        <text x="130" y="66" transform="rotate(330, 130, 130)" text-anchor="middle" dominant-baseline="central">330°</text>
                                     </g>
 
-                                    <!-- Cardinal Points radially aligned -->
-                                    <g font-family="var(--font-heading)" font-weight="800">
-                                        <text x="130" y="52" transform="rotate(0, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ef4444" font-size="13">S</text>
-                                        <text x="130" y="52" transform="rotate(45, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10" font-weight="700">SV</text>
-                                        <text x="130" y="52" transform="rotate(90, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)" font-size="13">V</text>
-                                        <text x="130" y="52" transform="rotate(135, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10" font-weight="700">JV</text>
-                                        <text x="130" y="52" transform="rotate(180, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)" font-size="13">J</text>
-                                        <text x="130" y="52" transform="rotate(225, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10" font-weight="700">JZ</text>
-                                        <text x="130" y="52" transform="rotate(270, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-primary)" font-size="13">Z</text>
-                                        <text x="130" y="52" transform="rotate(315, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="var(--text-secondary)" font-size="10" font-weight="700">SZ</text>
+                                    <!-- Cardinal Points with High Contrast -->
+                                    <g font-family="'Outfit', sans-serif" font-weight="800">
+                                        <text x="130" y="52" transform="rotate(0, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ef4444" font-size="14.5">S</text>
+                                        <text x="130" y="52" transform="rotate(45, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#38bdf8" font-size="10.5" font-weight="700">SV</text>
+                                        <text x="130" y="52" transform="rotate(90, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-size="14">V</text>
+                                        <text x="130" y="52" transform="rotate(135, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#38bdf8" font-size="10.5" font-weight="700">JV</text>
+                                        <text x="130" y="52" transform="rotate(180, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-size="14">J</text>
+                                        <text x="130" y="52" transform="rotate(225, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#38bdf8" font-size="10.5" font-weight="700">JZ</text>
+                                        <text x="130" y="52" transform="rotate(270, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-size="14">Z</text>
+                                        <text x="130" y="52" transform="rotate(315, 130, 130)" text-anchor="middle" dominant-baseline="central" fill="#38bdf8" font-size="10.5" font-weight="700">SZ</text>
                                     </g>
                                 </g>
 
-                                <!-- GPS COG Course Pointer -->
+                                <!-- GPS COG Course Arrow -->
                                 <g id="compass-needle-group" style="transform-origin: 130px 130px; transform: rotate(0deg); transition: transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1);">
-                                    <polygon points="130,36 124,56 136,56" fill="#ef4444" filter="url(#gaugeGlow)"/>
-                                    <polygon points="130,224 125,206 135,206" fill="var(--text-secondary)" opacity="0.5"/>
+                                    <polygon points="130,30 123,54 137,54" fill="url(#headingNeedleGrad)" filter="url(#neonGlow)"/>
+                                    <polygon points="130,230 124,208 136,208" fill="rgba(255,255,255,0.4)"/>
                                 </g>
                             </svg>
 
                             <!-- Digital Readout -->
                             <div class="gauge-center-content">
-                                <div class="gauge-center-val" id="nav-heading-deg">MIROVANJE</div>
+                                <div class="gauge-center-val status-text" id="nav-heading-deg">MIROVANJE</div>
                                 <div class="gauge-center-unit" id="nav-heading-cardinal"></div>
                             </div>
                         </div>
@@ -589,12 +630,14 @@
                     <!-- Map container with floating action buttons -->
                     <div class="nav-map-container-wrapper" id="nav-map-wrapper">
                         <div id="nav-map"></div>
-                        <button class="map-floating-btn map-fullscreen-btn" id="btn-map-fullscreen" onclick="toggleMapFullscreen()" title="Celozaslonski prikaz">
-                            <i class="fa-solid fa-expand" id="map-fullscreen-icon"></i>
-                        </button>
+                        <!-- Top right controls: clear and fullscreen -->
                         <button class="map-floating-btn map-clear-btn" id="map-clear-btn" onclick="clearNavRoute()" title="Počisti pot in cilj" style="display: none;">
                             <i class="fa-solid fa-trash-can"></i>
                         </button>
+                        <button class="map-floating-btn map-fullscreen-btn" id="btn-map-fullscreen" onclick="toggleMapFullscreen()" title="Celozaslonski prikaz">
+                            <i class="fa-solid fa-expand" id="map-fullscreen-icon"></i>
+                        </button>
+                        <!-- Bottom right control: locate -->
                         <button class="map-floating-btn map-locate-btn" onclick="centerMapOnBoat()" title="Centriraj na mojo lokacijo">
                             <i class="fa-solid fa-crosshairs"></i>
                         </button>
@@ -709,8 +752,8 @@
     </div>
 
     <!-- Application Logic Scripts -->
-    <script src="Arcots.js?v=60"></script>
-    <script src="TideCalculator.js?v=60"></script>
-    <script src="index.js?v=60"></script>
+    <script src="Arcots.js?v=61"></script>
+    <script src="TideCalculator.js?v=61"></script>
+    <script src="index.js?v=61"></script>
 </body>
 </html>

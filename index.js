@@ -2840,73 +2840,177 @@ let cruiseMaxSpeedKnots = 0;
 let lastRecordedGpsPos = null;
 let cruiseWakeLock = null;
 
-// 3 Key Slovenian Headlands Safe Waypoints (200m offshore clearance):
-const HEADLAND_DEBELI_RTIC = { lat: 45.6020, lon: 13.6850 };
-const HEADLAND_RONEK = { lat: 45.5470, lon: 13.5950 };
-const HEADLAND_PUNTA_PIRAN = { lat: 45.5360, lon: 13.5540 };
+// Accurate Slovenian Coastline 200m Seaward Offset Buffer Chain (Dense ~100m points)
+const SLO_COAST_200M_GUIDE_NODES = [
+    [45.5980, 13.7180], // 0 Lazaret (Border IT)
+    [45.5940, 13.7020], // 1 Debeli rtič NE
+    [45.5925, 13.6960], // 2 Debeli rtič W
+    [45.5905, 13.6930], // 3 Debeli rtič Apex (200m seaward)
+    [45.5860, 13.6970], // 4 Debeli rtič S
+    [45.5815, 13.7180], // 5 Valdoltra 200m
+    [45.5720, 13.7320], // 6 Ankaran / Sv. Katarina 200m
+    [45.5580, 13.7260], // 7 Luka Koper N basin 200m
+    [45.5505, 13.7180], // 8 Koper Kapitanija / Mandrač 200m
+    [45.5465, 13.7060], // 9 Žusterna 200m
+    [45.5420, 13.6760], // 10 Viližan 200m
+    [45.5445, 13.6580], // 11 Izola Marina 200m
+    [45.5462, 13.6515], // 12 Izola Punta Apex (200m seaward)
+    [45.5390, 13.6420], // 13 Simonov zaliv / San Simon 200m
+    [45.5400, 13.6260], // 14 Bele skale 200m
+    [45.5415, 13.6150], // 15 Mesečev zaliv E 200m
+    [45.5425, 13.6040], // 16 Rt Ronek Apex (200m seaward)
+    [45.5410, 13.5960], // 17 Rt Ronek NW (Mesečev zaliv W) 200m
+    [45.5340, 13.5950], // 18 Strunjan zaliv entrance 200m
+    [45.5290, 13.5830], // 19 Pacug / Salinera 200m
+    [45.5295, 13.5730], // 20 Fiesa 200m
+    [45.5330, 13.5640], // 21 Punta Piran NE
+    [45.5325, 13.5590], // 22 Punta Piran NW (outside yellow buoy line)
+    [45.5300, 13.5565], // 23 Punta Piran West Apex (200m seaward)
+    [45.5265, 13.5585], // 24 Punta Piran SW
+    [45.5235, 13.5640], // 25 Piran Mandrač S 200m
+    [45.5165, 13.5680], // 26 Bernardin Apex 200m
+    [45.5115, 13.5820], // 27 Portorož Central Beach 200m
+    [45.5020, 13.5900], // 28 Marina Lucija entrance 200m
+    [45.4965, 13.5860], // 29 Rt Seča Apex 200m
+    [45.4850, 13.5940]  // 30 Dragonja / Sečovlje (Border HR) 200m
+];
 
-function getShortestAngleDelta(current, target) {
-    return ((target - current) % 360 + 540) % 360 - 180;
-}
-
-// Distance & Bearing Calculations
-function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
-    const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function calculateBearing(lat1, lon1, lat2, lon2) {
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
-    const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
-              Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
-    let brg = Math.atan2(y, x) * 180 / Math.PI;
-    return (brg + 360) % 360;
-}
-
-function formatDuration(totalSec) {
-    const hrs = Math.floor(totalSec / 3600);
-    const mins = Math.floor((totalSec % 3600) / 60);
-    const secs = totalSec % 60;
-    const pad = n => String(n).padStart(2, '0');
-    if (hrs > 0) {
-        return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+// Precompute 100m dense interpolation along the 200m chain (~310 points)
+function generateDenseCoastalChain(guideNodes, maxSpacingMeters) {
+    const dense = [];
+    for (let i = 0; i < guideNodes.length - 1; i++) {
+        const pA = guideNodes[i];
+        const pB = guideNodes[i + 1];
+        const dist = haversineDistanceMeters(pA[0], pA[1], pB[0], pB[1]);
+        const steps = Math.max(1, Math.ceil(dist / maxSpacingMeters));
+        for (let s = 0; s < steps; s++) {
+            const t = s / steps;
+            const lat = pA[0] + t * (pB[0] - pA[0]);
+            const lon = pA[1] + t * (pB[1] - pA[1]);
+            dense.push([lat, lon]);
+        }
     }
-    return `${pad(mins)}:${pad(secs)}`;
+    dense.push(guideNodes[guideNodes.length - 1]);
+    return dense;
 }
 
-// Check if a line segment crosses any of the 3 key headlands
+const SLO_COAST_200M_CHAIN = generateDenseCoastalChain(SLO_COAST_200M_GUIDE_NODES, 100);
+
+// Key Land Obstacle Polylines (Slovenian coastline) for Line-of-Sight checking
+const SLO_LAND_BARRIERS = [
+    // Debeli rtič
+    [[45.5975, 13.7225], [45.5905, 13.7010], [45.5840, 13.7120], [45.5780, 13.7300]],
+    // Luka Koper
+    [[45.5580, 13.7350], [45.5490, 13.7250]],
+    // Koper - Žusterna
+    [[45.5480, 13.7220], [45.5440, 13.7060]],
+    // Žusterna - Izola Vzhod
+    [[45.5440, 13.7060], [45.5390, 13.6700]],
+    // Izola Peninsula
+    [[45.5390, 13.6700], [45.5435, 13.6550], [45.5360, 13.6450]],
+    // San Simon - Bele skale
+    [[45.5360, 13.6450], [45.5370, 13.6280]],
+    // Bele skale - Rt Ronek
+    [[45.5370, 13.6280], [45.5385, 13.6060]],
+    // Rt Ronek - Strunjan
+    [[45.5385, 13.6060], [45.5320, 13.6010]],
+    // Strunjan - Pacug
+    [[45.5320, 13.6010], [45.5260, 13.5850]],
+    // Pacug - Fiesa
+    [[45.5260, 13.5850], [45.5260, 13.5760]],
+    // Fiesa - Punta Piran
+    [[45.5260, 13.5760], [45.5292, 13.5645]],
+    // Punta Piran - Bernardin
+    [[45.5292, 13.5645], [45.5270, 13.5680], [45.5180, 13.5710]],
+    // Bernardin - Portorož
+    [[45.5180, 13.5710], [45.5140, 13.5860]],
+    // Portorož - Rt Seča
+    [[45.5140, 13.5860], [45.5030, 13.5950], [45.4980, 13.5900]],
+    // Seča - Dragonja
+    [[45.4980, 13.5900], [45.4850, 13.6000]]
+];
+
+function segmentsIntersect2D(lat1, lon1, lat2, lon2, lat3, lon3, lat4, lon4) {
+    function ccw(ax, ay, bx, by, cx, cy) {
+        return ((cy - ay) * (bx - ax)) - ((by - ay) * (cx - ax));
+    }
+    const ccw1 = ccw(lon1, lat1, lon3, lat3, lon4, lat4);
+    const ccw2 = ccw(lon2, lat2, lon3, lat3, lon4, lat4);
+    const ccw3 = ccw(lon1, lat1, lon2, lat2, lon3, lat3);
+    const ccw4 = ccw(lon1, lat1, lon2, lat2, lon4, lat4);
+    return ((ccw1 * ccw2 < 0) && (ccw3 * ccw4 < 0));
+}
+
+function hasLineOfSight(lat1, lon1, lat2, lon2) {
+    for (const poly of SLO_LAND_BARRIERS) {
+        for (let i = 0; i < poly.length - 1; i++) {
+            const pA = poly[i];
+            const pB = poly[i + 1];
+            if (segmentsIntersect2D(lat1, lon1, lat2, lon2, pA[0], pA[1], pB[0], pB[1])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Tangent Line-Of-Sight Visibility Route calculation between two nautical points
 function getSafeMarineSegment(lat1, lon1, lat2, lon2, useRules) {
     if (!useRules) {
         return [[lat1, lon1], [lat2, lon2]];
     }
 
-    const waypoints = [[lat1, lon1]];
-
-    const isCrossingDebeliRtic = (lat1 > 45.59 && lon2 > 13.70) || (lat2 > 45.59 && lon1 > 13.70);
-    const isNorthOfPiran = (lat1 > 45.535 || lat2 > 45.535);
-    const isSouthOfPiran = (lat1 < 45.525 || lat2 < 45.525);
-    const isEastOfRonek = (lon1 > 13.61 || lon2 > 13.61);
-    const isWestOfPiran = (lon1 < 13.56 || lon2 < 13.56);
-
-    if (isNorthOfPiran && isSouthOfPiran) {
-        if (isEastOfRonek) {
-            waypoints.push([HEADLAND_RONEK.lat, HEADLAND_RONEK.lon]);
-        }
-        waypoints.push([HEADLAND_PUNTA_PIRAN.lat, HEADLAND_PUNTA_PIRAN.lon]);
-    } else if (isCrossingDebeliRtic) {
-        waypoints.push([HEADLAND_DEBELI_RTIC.lat, HEADLAND_DEBELI_RTIC.lon]);
-    } else if (isEastOfRonek && isWestOfPiran && (lat1 > 45.53 && lat2 > 45.53)) {
-        waypoints.push([HEADLAND_RONEK.lat, HEADLAND_RONEK.lon]);
+    // If there is direct line of sight over open sea, sail direct straight line
+    if (hasLineOfSight(lat1, lon1, lat2, lon2)) {
+        return [[lat1, lon1], [lat2, lon2]];
     }
 
-    waypoints.push([lat2, lon2]);
-    return waypoints;
+    // Find nearest anchor points on the 200m buffer chain
+    let idxA = 0, minDistA = Infinity;
+    let idxB = 0, minDistB = Infinity;
+    for (let i = 0; i < SLO_COAST_200M_CHAIN.length; i++) {
+        const dA = haversineDistanceMeters(lat1, lon1, SLO_COAST_200M_CHAIN[i][0], SLO_COAST_200M_CHAIN[i][1]);
+        if (dA < minDistA) { minDistA = dA; idxA = i; }
+        const dB = haversineDistanceMeters(lat2, lon2, SLO_COAST_200M_CHAIN[i][0], SLO_COAST_200M_CHAIN[i][1]);
+        if (dB < minDistB) { minDistB = dB; idxB = i; }
+    }
+
+    // Extract ordered candidate sub-chain along the 200m corridor
+    const subChain = [];
+    if (idxA <= idxB) {
+        for (let i = idxA; i <= idxB; i++) subChain.push(SLO_COAST_200M_CHAIN[i]);
+    } else {
+        for (let i = idxA; i >= idxB; i--) subChain.push(SLO_COAST_200M_CHAIN[i]);
+    }
+
+    // Raycast / Tangent String Pulling Shortcut:
+    // From current position, look as far ahead along subChain as possible with clear line-of-sight
+    const route = [[lat1, lon1]];
+    let currPos = [lat1, lon1];
+    let currIdx = 0;
+
+    while (currIdx < subChain.length - 1) {
+        // Can we jump straight to destination?
+        if (hasLineOfSight(currPos[0], currPos[1], lat2, lon2)) {
+            break;
+        }
+
+        let furthestIdx = currIdx + 1;
+        for (let k = subChain.length - 1; k > currIdx; k--) {
+            const cand = subChain[k];
+            if (hasLineOfSight(currPos[0], currPos[1], cand[0], cand[1])) {
+                furthestIdx = k;
+                break;
+            }
+        }
+
+        route.push(subChain[furthestIdx]);
+        currPos = subChain[furthestIdx];
+        currIdx = furthestIdx;
+    }
+
+    route.push([lat2, lon2]);
+    return route;
 }
 
 // 3-Tab Main Tab Switching
@@ -3194,6 +3298,15 @@ function initNavMap() {
         attributionControl: false
     });
 
+    // Dedicated High Z-Index Panes so seamarks and depth lines NEVER get hidden under Satellite tiles
+    const seamarksPane = navMap.createPane('seamarksPane');
+    seamarksPane.style.zIndex = '450';
+    seamarksPane.style.pointerEvents = 'none';
+
+    const depthPane = navMap.createPane('depthPane');
+    depthPane.style.zIndex = '420';
+    depthPane.style.pointerEvents = 'none';
+
     // Base Tile Layers
     navMapLayers.osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18,
@@ -3205,18 +3318,11 @@ function initNavMap() {
         crossOrigin: true
     });
 
+    // OpenSeaMap Seamarks in dedicated seamarksPane (always on top)
     navMapLayers.seamarks = L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
         maxZoom: 18,
-        crossOrigin: true
-    });
-
-    // EMODnet Bathymetry Depth Contours WMS
-    depthWmsLayer = L.tileLayer.wms('https://ows.emodnet-bathymetry.eu/wms', {
-        layers: 'emodnet:contours',
-        format: 'image/png',
-        transparent: true,
-        maxZoom: 18,
-        opacity: 0.85
+        crossOrigin: true,
+        pane: 'seamarksPane'
     });
 
     // Default: OSM + OpenSeaMap
@@ -3284,12 +3390,9 @@ function setNavMapLayer(layerType) {
         navMapLayers.osm.addTo(navMap);
     }
 
-    // Keep seamarks on top
+    // Keep seamarks on top via seamarksPane
     if (!navMap.hasLayer(navMapLayers.seamarks)) {
         navMapLayers.seamarks.addTo(navMap);
-    }
-    if (showDepthContours && depthWmsLayer && !navMap.hasLayer(depthWmsLayer)) {
-        depthWmsLayer.addTo(navMap);
     }
 }
 window.setNavMapLayer = setNavMapLayer;
@@ -3308,7 +3411,8 @@ function toggleDepthContours() {
                 format: 'image/png',
                 transparent: true,
                 maxZoom: 18,
-                opacity: 0.85
+                opacity: 0.85,
+                pane: 'depthPane'
             });
         }
         depthWmsLayer.addTo(navMap);
@@ -3318,30 +3422,46 @@ function toggleDepthContours() {
 }
 window.toggleDepthContours = toggleDepthContours;
 
-// Fullscreen Map Controller
+// Fullscreen Map Controller (Native + CSS Mobile Overlay Fallback)
 function toggleMapFullscreen() {
     const wrapper = document.getElementById('nav-map-wrapper');
     const icon = document.getElementById('map-fullscreen-icon');
     if (!wrapper) return;
 
-    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    const isNativeFull = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    const isCssFull = wrapper.classList.contains('is-fullscreen');
+
+    if (!isNativeFull && !isCssFull) {
         if (wrapper.requestFullscreen) {
-            wrapper.requestFullscreen();
+            wrapper.requestFullscreen().catch(() => {});
         } else if (wrapper.webkitRequestFullscreen) {
             wrapper.webkitRequestFullscreen();
         }
+        wrapper.classList.add('is-fullscreen');
         if (icon) icon.className = 'fa-solid fa-compress';
     } else {
         if (document.exitFullscreen) {
-            document.exitFullscreen();
+            document.exitFullscreen().catch(() => {});
         } else if (document.webkitExitFullscreen) {
             document.webkitExitFullscreen();
         }
+        wrapper.classList.remove('is-fullscreen');
         if (icon) icon.className = 'fa-solid fa-expand';
     }
-    setTimeout(() => { if (navMap) navMap.invalidateSize(); }, 200);
+    setTimeout(() => { if (navMap) navMap.invalidateSize(); }, 250);
 }
 window.toggleMapFullscreen = toggleMapFullscreen;
+
+// Synchronize fullscreen exit on ESC or system gesture
+document.addEventListener('fullscreenchange', () => {
+    const wrapper = document.getElementById('nav-map-wrapper');
+    const icon = document.getElementById('map-fullscreen-icon');
+    if (!document.fullscreenElement && wrapper) {
+        wrapper.classList.remove('is-fullscreen');
+        if (icon) icon.className = 'fa-solid fa-expand';
+        if (navMap) setTimeout(() => navMap.invalidateSize(), 200);
+    }
+});
 
 function centerMapOnBoat() {
     if (!navMap) initNavMap();
