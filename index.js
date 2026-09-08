@@ -2813,6 +2813,7 @@ let navMapLayers = {};
 let currentNavMapLayerType = 'osm';
 let showDepthContours = false;
 let depthWmsLayer = null;
+let depthVectorLayerGroup = null;
 
 let navBoatMarker = null;
 let navPlannedRoutePolyline = null;
@@ -2840,6 +2841,41 @@ let cruiseMaxSpeedKnots = 0;
 let lastRecordedGpsPos = null;
 let cruiseWakeLock = null;
 let hasCenteredInitialGps = false;
+
+// Haversine Distance in meters between two lat/lon coordinates
+function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000; // Earth radius in meters
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+// Initial Bearing in degrees (0 - 360) from point 1 to point 2
+function calculateBearing(lat1, lon1, lat2, lon2) {
+    const phi1 = lat1 * Math.PI / 180;
+    const phi2 = lat2 * Math.PI / 180;
+    const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+    const y = Math.sin(deltaLambda) * Math.cos(phi2);
+    const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
+    const theta = Math.atan2(y, x);
+    return (theta * 180 / Math.PI + 360) % 360;
+}
+
+// Format duration in seconds to mm:ss or hh:mm:ss
+function formatDuration(sec) {
+    if (isNaN(sec) || sec < 0) return '--:--';
+    const hrs = Math.floor(sec / 3600);
+    const mins = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    if (hrs > 0) {
+        return `${hrs}h ${String(mins).padStart(2, '0')}m`;
+    }
+    return `${String(mins).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 // Accurate Slovenian Coastline 200m Seaward Offset Buffer Chain (Dense ~100m points)
 const SLO_COAST_200M_GUIDE_NODES = [
@@ -3365,36 +3401,41 @@ const SLO_BATHYMETRY_SOUNDINGS = [
     { label: '26.8m', lat: 45.5450, lon: 13.5400, name: 'Odprto morje pred Piranom' }
 ];
 
-let depthVectorLayerGroup = null;
-
 function buildBathymetryLayer() {
     if (depthVectorLayerGroup) return depthVectorLayerGroup;
     depthVectorLayerGroup = L.layerGroup([]);
 
     // 1. High-contrast Isobath Polylines with visual depth
     SLO_BATHYMETRY_ISOBATHS.forEach(iso => {
+        let isoColor = iso.color;
+        if (iso.depth === 2) isoColor = '#f59e0b';
+        else if (iso.depth === 5) isoColor = '#00f0ff';
+        else if (iso.depth === 10) isoColor = '#0ea5e9';
+        else if (iso.depth === 15) isoColor = '#2563eb';
+        else if (iso.depth === 20) isoColor = '#4338ca';
+        else if (iso.depth === 25) isoColor = '#6366f1';
+
         const poly = L.polyline(iso.coords, {
-            color: iso.color,
-            weight: (iso.depth === 2 || iso.depth === 5) ? 3.2 : 2.6,
+            color: isoColor,
+            weight: (iso.depth === 2 || iso.depth === 5) ? 3.5 : 2.8,
             dashArray: iso.dashArray,
-            opacity: 0.95,
-            pane: 'depthPane'
+            opacity: 0.95
         });
         poly.bindPopup(`<b>Izobata ${iso.depth} m</b><br>Globinska črta slovenskega morja (${iso.depth} metrov)`);
         depthVectorLayerGroup.addLayer(poly);
 
         // Add depth label badges along the isobath line
-        if (iso.coords && iso.coords.length > 6) {
+        if (iso.coords && iso.coords.length > 5) {
             const mid1 = iso.coords[Math.floor(iso.coords.length * 0.35)];
             const mid2 = iso.coords[Math.floor(iso.coords.length * 0.75)];
             [mid1, mid2].forEach(pt => {
                 const lblIcon = L.divIcon({
                     className: 'bathy-sounding-divicon',
                     html: `<div class="bathy-isobath-label">${iso.depth}m</div>`,
-                    iconSize: [28, 16],
-                    iconAnchor: [14, 8]
+                    iconSize: [30, 16],
+                    iconAnchor: [15, 8]
                 });
-                const lblMarker = L.marker(pt, { icon: lblIcon, pane: 'depthPane', interactive: false });
+                const lblMarker = L.marker(pt, { icon: lblIcon, interactive: false });
                 depthVectorLayerGroup.addLayer(lblMarker);
             });
         }
@@ -3405,10 +3446,10 @@ function buildBathymetryLayer() {
         const icon = L.divIcon({
             className: 'bathy-sounding-divicon',
             html: `<div class="bathy-sounding-badge">${snd.label}</div>`,
-            iconSize: [40, 20],
-            iconAnchor: [20, 10]
+            iconSize: [42, 20],
+            iconAnchor: [21, 10]
         });
-        const marker = L.marker([snd.lat, snd.lon], { icon: icon, pane: 'depthPane' });
+        const marker = L.marker([snd.lat, snd.lon], { icon: icon });
         marker.bindPopup(`<b>${snd.name}</b><br>Globina morja: <b>${snd.label}</b>`);
         depthVectorLayerGroup.addLayer(marker);
     });
@@ -3873,8 +3914,15 @@ function recalculateCurrentRoute() {
     const activePoints = [];
     const startWp = routeWaypoints.find(w => w.type === 'start');
     if (startWp) {
-        if (startWp.isGps && lastGpsCoords) {
-            activePoints.push({ lat: lastGpsCoords.latitude, lon: lastGpsCoords.longitude });
+        if (startWp.isGps) {
+            if (lastGpsCoords) {
+                activePoints.push({ lat: lastGpsCoords.latitude, lon: lastGpsCoords.longitude });
+            } else if (navBoatMarker) {
+                const pos = navBoatMarker.getLatLng();
+                activePoints.push({ lat: pos.lat, lon: pos.lng });
+            } else {
+                activePoints.push({ lat: 45.545, lon: 13.650 });
+            }
         } else if (startWp.lat !== null && startWp.lon !== null) {
             activePoints.push({ lat: startWp.lat, lon: startWp.lon });
         }
@@ -3985,18 +4033,15 @@ function onPlannedSpeedChange() {
 window.onPlannedSpeedChange = onPlannedSpeedChange;
 
 function updateLiveRouteTelemetry() {
-    if (currentCalculatedRouteCoords.length < 2) {
+    if (!currentCalculatedRouteCoords || currentCalculatedRouteCoords.length < 2) {
         resetRouteTelemetryDisplay();
         return;
     }
 
-    const boatLat = lastGpsCoords ? lastGpsCoords.latitude : currentCalculatedRouteCoords[0][0];
-    const boatLon = lastGpsCoords ? lastGpsCoords.longitude : currentCalculatedRouteCoords[0][1];
     const currentSpeedKnots = lastGpsSpeedKnots || 0;
 
     let totalDtgM = 0;
-    totalDtgM += haversineDistanceMeters(boatLat, boatLon, currentCalculatedRouteCoords[1][0], currentCalculatedRouteCoords[1][1]);
-    for (let i = 1; i < currentCalculatedRouteCoords.length - 1; i++) {
+    for (let i = 0; i < currentCalculatedRouteCoords.length - 1; i++) {
         totalDtgM += haversineDistanceMeters(
             currentCalculatedRouteCoords[i][0], currentCalculatedRouteCoords[i][1],
             currentCalculatedRouteCoords[i+1][0], currentCalculatedRouteCoords[i+1][1]
@@ -4013,6 +4058,8 @@ function updateLiveRouteTelemetry() {
 
     // BRG to immediate next waypoint on active leg
     const nextWp = currentCalculatedRouteCoords[1];
+    const boatLat = (lastGpsCoords && isCruiseActive) ? lastGpsCoords.latitude : currentCalculatedRouteCoords[0][0];
+    const boatLon = (lastGpsCoords && isCruiseActive) ? lastGpsCoords.longitude : currentCalculatedRouteCoords[0][1];
     const brg = calculateBearing(boatLat, boatLon, nextWp[0], nextWp[1]);
     const brgEl = document.getElementById('telem-brg');
     const brgCardEl = document.getElementById('telem-brg-card');
