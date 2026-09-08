@@ -3083,6 +3083,14 @@ function formatNauticalCoord(degDec, isLat) {
     return `${degStr}° ${minStr}' ${hemisphere}`;
 }
 
+// Calculate shortest angular difference between two angles in degrees (-180 to +180)
+function getShortestAngleDelta(fromAngle, toAngle) {
+    let diff = (toAngle - fromAngle) % 360;
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    return diff;
+}
+
 // Convert degrees to 16-point cardinal compass text
 function getHeadingCardinal(deg) {
     if (deg === null || deg === undefined || isNaN(deg)) return "--";
@@ -3108,27 +3116,68 @@ function handleDeviceOrientation(event) {
 }
 
 function updateCompassOrientation() {
-    // 1. Rotate the compass dial smoothly with shortest-angle unwrapping
-    const targetDial = -phoneMagneticHeading;
-    currentDialAngle += getShortestAngleDelta(currentDialAngle, targetDial);
-    const compassDial = document.getElementById('compass-dial-group');
-    if (compassDial) {
-        compassDial.style.transform = `rotate(${currentDialAngle}deg)`;
-    }
-
-    // 2. Rotate the GPS COG pointer relative to the dial
-    const compassNeedle = document.getElementById('compass-needle-group');
-    if (compassNeedle) {
-        if (lastGpsHeading !== null && lastGpsSpeedKnots >= 0.4) {
-            const targetNeedle = (lastGpsHeading - phoneMagneticHeading);
-            currentNeedleAngle += getShortestAngleDelta(currentNeedleAngle, targetNeedle);
-            compassNeedle.style.transform = `rotate(${currentNeedleAngle}deg)`;
-            compassNeedle.style.opacity = '1';
-        } else {
-            compassNeedle.style.opacity = '0.35';
+    try {
+        // 1. Rotate the compass dial smoothly with shortest-angle unwrapping
+        const targetDial = -phoneMagneticHeading;
+        currentDialAngle += getShortestAngleDelta(currentDialAngle, targetDial);
+        const compassDial = document.getElementById('compass-dial-group');
+        if (compassDial) {
+            compassDial.style.transform = `rotate(${currentDialAngle}deg)`;
         }
+
+        // 2. Rotate the GPS COG pointer relative to the dial
+        const compassNeedle = document.getElementById('compass-needle-group');
+        if (compassNeedle) {
+            if (lastGpsHeading !== null && lastGpsSpeedKnots >= 0.4) {
+                const targetNeedle = (lastGpsHeading - phoneMagneticHeading);
+                currentNeedleAngle += getShortestAngleDelta(currentNeedleAngle, targetNeedle);
+                compassNeedle.style.transform = `rotate(${currentNeedleAngle}deg)`;
+                compassNeedle.style.opacity = '1';
+            } else {
+                compassNeedle.style.opacity = '0.35';
+            }
+        }
+
+        // 3. In stationary mode (< 0.4 kt), show current phone magnetic heading on the compass center
+        const headingDegEl = document.getElementById('nav-heading-deg');
+        const headingCardEl = document.getElementById('nav-heading-cardinal');
+        if (lastGpsSpeedKnots < 0.4 && headingDegEl) {
+            if (phoneMagneticHeading !== null && !isNaN(phoneMagneticHeading)) {
+                headingDegEl.textContent = `${Math.round(phoneMagneticHeading)}°`;
+                headingDegEl.classList.remove('status-text');
+                if (headingCardEl) {
+                    headingCardEl.textContent = getHeadingCardinal(phoneMagneticHeading);
+                }
+            } else {
+                headingDegEl.textContent = 'MIROVANJE';
+                headingDegEl.classList.add('status-text');
+                if (headingCardEl) headingCardEl.textContent = '';
+            }
+        }
+    } catch (e) {
+        console.warn('Compass orientation update error:', e);
     }
 }
+
+function requestCompassPermission() {
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+            .then(permissionState => {
+                if (permissionState === 'granted') {
+                    startOrientationTracking();
+                } else {
+                    console.warn('Compass permission state:', permissionState);
+                }
+            })
+            .catch(err => {
+                console.warn('DeviceOrientation permission error:', err);
+                startOrientationTracking();
+            });
+    } else {
+        startOrientationTracking();
+    }
+}
+window.requestCompassPermission = requestCompassPermission;
 
 function startOrientationTracking() {
     if (orientationActive) return;
@@ -3141,9 +3190,10 @@ function startOrientationTracking() {
                     orientationActive = true;
                 }
             })
-            .catch(err => console.warn('DeviceOrientation permission request failed:', err));
+            .catch(err => console.warn('DeviceOrientation permission request deferred:', err));
     } else if ('ondeviceorientationabsolute' in window) {
         window.addEventListener('deviceorientationabsolute', handleDeviceOrientation, true);
+        window.addEventListener('deviceorientation', handleDeviceOrientation, true);
         orientationActive = true;
     } else if ('ondeviceorientation' in window) {
         window.addEventListener('deviceorientation', handleDeviceOrientation, true);
@@ -3319,28 +3369,44 @@ let depthVectorLayerGroup = null;
 
 function buildBathymetryLayer() {
     if (depthVectorLayerGroup) return depthVectorLayerGroup;
-    depthVectorLayerGroup = L.layerGroup([], { pane: 'depthPane' });
+    depthVectorLayerGroup = L.layerGroup([]);
 
-    // 1. Isobath Lines
+    // 1. High-contrast Isobath Polylines with visual depth
     SLO_BATHYMETRY_ISOBATHS.forEach(iso => {
         const poly = L.polyline(iso.coords, {
             color: iso.color,
-            weight: iso.weight,
+            weight: (iso.depth === 2 || iso.depth === 5) ? 3.2 : 2.6,
             dashArray: iso.dashArray,
-            opacity: 0.85,
+            opacity: 0.95,
             pane: 'depthPane'
         });
-        poly.bindPopup(`<b>Izobata ${iso.depth} m</b><br>Globinska črta slovenskega morja`);
+        poly.bindPopup(`<b>Izobata ${iso.depth} m</b><br>Globinska črta slovenskega morja (${iso.depth} metrov)`);
         depthVectorLayerGroup.addLayer(poly);
+
+        // Add depth label badges along the isobath line
+        if (iso.coords && iso.coords.length > 6) {
+            const mid1 = iso.coords[Math.floor(iso.coords.length * 0.35)];
+            const mid2 = iso.coords[Math.floor(iso.coords.length * 0.75)];
+            [mid1, mid2].forEach(pt => {
+                const lblIcon = L.divIcon({
+                    className: 'bathy-sounding-divicon',
+                    html: `<div class="bathy-isobath-label">${iso.depth}m</div>`,
+                    iconSize: [28, 16],
+                    iconAnchor: [14, 8]
+                });
+                const lblMarker = L.marker(pt, { icon: lblIcon, pane: 'depthPane', interactive: false });
+                depthVectorLayerGroup.addLayer(lblMarker);
+            });
+        }
     });
 
-    // 2. Sounding Badges
+    // 2. Sounding Badges with depth in meters
     SLO_BATHYMETRY_SOUNDINGS.forEach(snd => {
         const icon = L.divIcon({
             className: 'bathy-sounding-divicon',
             html: `<div class="bathy-sounding-badge">${snd.label}</div>`,
-            iconSize: [36, 18],
-            iconAnchor: [18, 9]
+            iconSize: [40, 20],
+            iconAnchor: [20, 10]
         });
         const marker = L.marker([snd.lat, snd.lon], { icon: icon, pane: 'depthPane' });
         marker.bindPopup(`<b>${snd.name}</b><br>Globina morja: <b>${snd.label}</b>`);
@@ -3904,6 +3970,20 @@ function resetRouteTelemetryDisplay() {
     if (brgCardEl) brgCardEl.textContent = '--';
 }
 
+let plannedSpeedKnots = 6.0;
+
+function onPlannedSpeedChange() {
+    const inputEl = document.getElementById('input-planned-speed');
+    if (inputEl) {
+        const val = parseFloat(inputEl.value);
+        if (!isNaN(val) && val > 0) {
+            plannedSpeedKnots = val;
+            updateLiveRouteTelemetry();
+        }
+    }
+}
+window.onPlannedSpeedChange = onPlannedSpeedChange;
+
 function updateLiveRouteTelemetry() {
     if (currentCalculatedRouteCoords.length < 2) {
         resetRouteTelemetryDisplay();
@@ -3939,11 +4019,13 @@ function updateLiveRouteTelemetry() {
     if (brgEl) brgEl.textContent = `${Math.round(brg)}°`;
     if (brgCardEl) brgCardEl.textContent = getHeadingCardinal(brg);
 
-    // TTG & ETA
+    // TTG & ETA (uses real GPS speed during cruise, or planned cruise speed during planning)
     const ttgEl = document.getElementById('telem-ttg');
     const etaEl = document.getElementById('telem-eta');
-    if (currentSpeedKnots >= 0.5) {
-        const ttgHours = dtgNm / currentSpeedKnots;
+    const effectiveSpeedKnots = (isCruiseActive && currentSpeedKnots >= 0.5) ? currentSpeedKnots : (plannedSpeedKnots > 0 ? plannedSpeedKnots : 6.0);
+
+    if (effectiveSpeedKnots >= 0.3) {
+        const ttgHours = dtgNm / effectiveSpeedKnots;
         const ttgSec = Math.round(ttgHours * 3600);
         if (ttgEl) ttgEl.textContent = formatDuration(ttgSec);
 
@@ -4010,6 +4092,10 @@ function startCruise() {
     }
 
     requestCruiseWakeLock();
+
+    // Hide planned speed row during active cruise
+    const speedRow = document.getElementById('planner-speed-row');
+    if (speedRow) speedRow.style.display = 'none';
 
     const btn = document.getElementById('btn-cruise-toggle');
     const icon = document.getElementById('cruise-btn-icon');
@@ -4078,6 +4164,11 @@ function endCruiseState() {
         cruiseDurationTimer = null;
     }
     releaseCruiseWakeLock();
+
+    // Show planned speed row again for planning
+    const speedRow = document.getElementById('planner-speed-row');
+    if (speedRow) speedRow.style.display = 'flex';
+    updateLiveRouteTelemetry();
 
     const btn = document.getElementById('btn-cruise-toggle');
     const icon = document.getElementById('cruise-btn-icon');

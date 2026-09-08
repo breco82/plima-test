@@ -522,7 +522,7 @@
                     </div>
 
                     <!-- Prikazovalnik 2: Smer plovbe (COG / Hibridni Kompas) - Modern Marine Chrome Glass Cockpit -->
-                    <div class="gauge-card">
+                    <div class="gauge-card" id="nav-gauge-compass-card" onclick="requestCompassPermission()" style="cursor: pointer;" title="Kliknite za vklop ali umerjanje senzorja kompasa">
                         <div class="gauge-card-header">
                             <span class="gauge-card-title"><i class="fa-solid fa-compass"></i> Smer plovbe (COG)</span>
                         </div>
@@ -726,6 +726,18 @@
                                 </button>
                             </div>
                         </div>
+
+                        <!-- Predvidena hitrost za izračun ETA med načrtovanjem (izgine ob začetku plovbe) -->
+                        <div class="planner-speed-row" id="planner-speed-row">
+                            <div class="planner-speed-label">
+                                <i class="fa-solid fa-gauge-simple-high"></i>
+                                <span>Predvidena hitrost za ETA:</span>
+                            </div>
+                            <div class="planner-speed-input-box">
+                                <input type="number" id="input-planned-speed" value="6.0" min="0.5" max="50" step="0.5" oninput="onPlannedSpeedChange()">
+                                <span class="planner-speed-unit">kt</span>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Telemetrija vodenja & snemanja -->
@@ -795,8 +807,8 @@
     </div>
 
     <!-- Application Logic Scripts -->
-    <script src="Arcots.js?v=62"></script>
-    <script src="TideCalculator.js?v=62"></script>
-    <script src="index.js?v=62"></script>
+    <script src="Arcots.js?v=63"></script>
+    <script src="TideCalculator.js?v=63"></script>
+    <script src="index.js?v=63"></script>
 </body>
 </html>

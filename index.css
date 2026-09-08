@@ -1731,19 +1731,42 @@ body.light-theme .gauge-card {
     display: flex;
     align-items: center;
     justify-content: center;
+    background: transparent;
+    border: none;
 }
 
 .bathy-sounding-badge {
-    background: rgba(15, 23, 42, 0.85);
-    border: 1px solid rgba(56, 189, 248, 0.6);
+    background: rgba(15, 23, 42, 0.92);
+    border: 1.5px solid #00f0ff;
     border-radius: 6px;
-    color: #38bdf8;
+    color: #ffffff;
     font-family: 'Outfit', sans-serif;
-    font-size: 10px;
+    font-size: 11px;
+    font-weight: 800;
+    padding: 1px 5px;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.8), 0 0 8px rgba(0, 240, 255, 0.35);
+    pointer-events: auto;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.bathy-sounding-badge:hover {
+    transform: scale(1.15);
+    background: #0284c7;
+    border-color: #ffffff;
+}
+
+.bathy-isobath-label {
+    background: rgba(2, 6, 23, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    color: #00f0ff;
+    font-family: 'Outfit', sans-serif;
+    font-size: 9.5px;
     font-weight: 800;
     padding: 1px 4px;
     white-space: nowrap;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
     pointer-events: none;
 }
 
@@ -1897,6 +1920,72 @@ body.light-theme .gauge-card {
 
 .wp-action-btn.delete-btn:hover {
     color: #ef4444;
+}
+
+/* Planned Speed input row during planning */
+.planner-speed-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(14, 165, 233, 0.08);
+    border: 1px solid rgba(14, 165, 233, 0.25);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    margin-top: 0.2rem;
+    transition: all 0.25s ease;
+}
+
+.planner-speed-label {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.planner-speed-label i {
+    color: #38bdf8;
+}
+
+.planner-speed-input-box {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+#input-planned-speed {
+    width: 62px;
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    border-radius: 6px;
+    color: #ffffff;
+    font-family: var(--font-heading);
+    font-size: 0.95rem;
+    font-weight: 700;
+    padding: 4px 6px;
+    text-align: center;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+body.light-theme #input-planned-speed {
+    background: #0f172a;
+    color: #ffffff;
+}
+
+#input-planned-speed:focus {
+    border-color: #38bdf8;
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+    background: rgba(15, 23, 42, 0.95);
+}
+
+.planner-speed-unit {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #38bdf8;
+    text-transform: uppercase;
 }
 
 /* Telemetry Dashboard Grid */
