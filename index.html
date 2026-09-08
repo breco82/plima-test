@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- CSS Stylesheet -->
-    <link rel="stylesheet" href="index.css?v=59">
+    <link rel="stylesheet" href="index.css?v=60">
     <link rel="manifest" href="manifest.json">
     
     <!-- Leaflet Nautical Map CSS & JS -->
@@ -570,22 +570,28 @@
                         <span class="coord-label"><i class="fa-solid fa-arrows-left-right"></i> DOLŽINA (LON)</span>
                         <span class="coord-val" id="nav-lon-val">---° --.---' E</span>
                     </div>
+                    <button type="button" class="btn-share-location" id="btn-share-location" onclick="shareCurrentLocation()">
+                        <i class="fa-solid fa-share-nodes"></i> Deli mojo lokacijo
+                    </button>
                 </div>
 
-                <!-- Interaktivna Navtična Karta & Načrtovanje Poti -->
+                <!-- Navtična Karta & Načrtovanje Poti -->
                 <div class="nav-map-card">
                     <div class="nav-map-header">
-                        <span class="nav-map-title"><i class="fa-solid fa-map-location-dot"></i> Navtična karta &amp; vodenje</span>
+                        <span class="nav-map-title"><i class="fa-solid fa-map-location-dot"></i> Navtična karta</span>
                         <div class="nav-map-layer-pills">
-                            <button class="map-pill-btn active" id="pill-layer-nautical" onclick="setNavMapLayer('nautical')">Navtična</button>
+                            <button class="map-pill-btn active" id="pill-layer-osm" onclick="setNavMapLayer('osm')">Zemljevid</button>
                             <button class="map-pill-btn" id="pill-layer-satellite" onclick="setNavMapLayer('satellite')">Satelit</button>
-                            <button class="map-pill-btn" id="pill-layer-osm" onclick="setNavMapLayer('osm')">Zemljevid</button>
+                            <button class="map-pill-btn" id="pill-layer-depth" onclick="toggleDepthContours()" title="Prikaz globinskih izobat"><i class="fa-solid fa-water"></i> Globine</button>
                         </div>
                     </div>
 
                     <!-- Map container with floating action buttons -->
-                    <div class="nav-map-container-wrapper">
+                    <div class="nav-map-container-wrapper" id="nav-map-wrapper">
                         <div id="nav-map"></div>
+                        <button class="map-floating-btn map-fullscreen-btn" id="btn-map-fullscreen" onclick="toggleMapFullscreen()" title="Celozaslonski prikaz">
+                            <i class="fa-solid fa-expand" id="map-fullscreen-icon"></i>
+                        </button>
                         <button class="map-floating-btn map-clear-btn" id="map-clear-btn" onclick="clearNavRoute()" title="Počisti pot in cilj" style="display: none;">
                             <i class="fa-solid fa-trash-can"></i>
                         </button>
@@ -594,17 +600,45 @@
                         </button>
                     </div>
 
-                    <!-- Hitri cilji na slovenski obali -->
-                    <div class="quick-dest-section">
-                        <span class="quick-dest-title">Hitra izbira cilja (ali klik na zemljevid):</span>
-                        <div class="quick-dest-chips">
-                            <button class="dest-chip-btn" onclick="selectQuickDest('koper')"><i class="fa-solid fa-anchor"></i> Koper Kapitanija</button>
-                            <button class="dest-chip-btn" onclick="selectQuickDest('izola')"><i class="fa-solid fa-anchor"></i> Marina Izola</button>
-                            <button class="dest-chip-btn" onclick="selectQuickDest('vida')"><i class="fa-solid fa-tower-broadcast"></i> Boja Vida</button>
-                            <button class="dest-chip-btn" onclick="selectQuickDest('piran')"><i class="fa-solid fa-anchor"></i> Piran Pristanišče</button>
-                            <button class="dest-chip-btn" onclick="selectQuickDest('portoroz')"><i class="fa-solid fa-anchor"></i> Marina Portorož</button>
-                            <button class="dest-chip-btn" onclick="selectQuickDest('strunjan')"><i class="fa-solid fa-umbrella-beach"></i> Strunjan</button>
-                            <button class="dest-chip-btn" onclick="selectQuickDest('debeli_rtic')"><i class="fa-solid fa-landmark"></i> Debeli rtič</button>
+                    <!-- Večtočkovno načrtovanje poti -->
+                    <div class="waypoint-planner-container">
+                        <div class="planner-header">
+                            <span class="planner-title"><i class="fa-solid fa-route"></i> Načrtovanje poti</span>
+                            <button type="button" class="btn-add-waypoint" onclick="addWaypointRow()" title="Dodaj vmesno točko">
+                                <i class="fa-solid fa-plus"></i> Dodaj točko
+                            </button>
+                        </div>
+                        <label class="route-rule-toggle">
+                            <input type="checkbox" id="chk-route-rules" checked onchange="recalculateCurrentRoute()">
+                            <span>Upoštevaj predpise (200 m od obale &amp; varno obplutje rtov)</span>
+                        </label>
+                        <div class="waypoint-rows-list" id="waypoint-rows-list">
+                            <!-- Start Row -->
+                            <div class="waypoint-row start-row active" id="wp-row-start" onclick="setActiveWaypointTarget('start')">
+                                <span class="wp-icon start-icon"><i class="fa-solid fa-location-crosshairs"></i></span>
+                                <div class="wp-details">
+                                    <span class="wp-label">Začetek (Start)</span>
+                                    <span class="wp-coord-text" id="wp-text-start">Moja lokacija (GPS)</span>
+                                </div>
+                                <button type="button" class="wp-action-btn" onclick="resetStartToGps(event)" title="Ponastavi na trenutno lokacijo">
+                                    <i class="fa-solid fa-rotate-left"></i>
+                                </button>
+                            </div>
+
+                            <!-- Dynamic Intermediate Waypoints container -->
+                            <div id="wp-intermediate-container" style="display: flex; flex-direction: column; gap: 0.45rem;"></div>
+
+                            <!-- Destination Row -->
+                            <div class="waypoint-row dest-row" id="wp-row-dest" onclick="setActiveWaypointTarget('dest')">
+                                <span class="wp-icon dest-icon"><i class="fa-solid fa-flag-checkered"></i></span>
+                                <div class="wp-details">
+                                    <span class="wp-label">Cilj (Destination)</span>
+                                    <span class="wp-coord-text" id="wp-text-dest">Kliknite na karto za izbiro cilja</span>
+                                </div>
+                                <button type="button" class="wp-action-btn delete-btn" onclick="clearWaypointTarget('dest', event)" title="Počisti cilj">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -621,7 +655,7 @@
                             <span class="telem-sub" id="telem-eta">ETA: --:--</span>
                         </div>
                         <div class="telem-box">
-                            <span class="telem-label">Kurz cilja (BRG)</span>
+                            <span class="telem-label">Kurz odseka (BRG)</span>
                             <span class="telem-val" id="telem-brg">--°</span>
                             <span class="telem-sub" id="telem-brg-card">--</span>
                         </div>
@@ -629,6 +663,11 @@
                             <span class="telem-label">Prepluto</span>
                             <span class="telem-val" id="telem-dist">0.00 NM</span>
                             <span class="telem-sub" id="telem-dist-km">0.0 km</span>
+                        </div>
+                        <div class="telem-box">
+                            <span class="telem-label">Najvišja hitrost</span>
+                            <span class="telem-val" id="telem-max-speed">0.0 kt</span>
+                            <span class="telem-sub" id="telem-max-speed-kmh">0.0 km/h</span>
                         </div>
                         <div class="telem-box">
                             <span class="telem-label">Povp. hitrost</span>
@@ -641,7 +680,7 @@
                     <div class="cruise-action-row">
                         <button class="cruise-btn-primary" id="btn-cruise-toggle" onclick="toggleCruiseRecording()">
                             <i class="fa-solid fa-play" id="cruise-btn-icon"></i>
-                            <span id="cruise-btn-text">Začni plovbo / snemanje</span>
+                            <span id="cruise-btn-text">Začni</span>
                         </button>
                     </div>
 
@@ -670,8 +709,8 @@
     </div>
 
     <!-- Application Logic Scripts -->
-    <script src="Arcots.js?v=59"></script>
-    <script src="TideCalculator.js?v=59"></script>
-    <script src="index.js?v=59"></script>
+    <script src="Arcots.js?v=60"></script>
+    <script src="TideCalculator.js?v=60"></script>
+    <script src="index.js?v=60"></script>
 </body>
 </html>

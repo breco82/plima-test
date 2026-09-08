@@ -1449,19 +1449,22 @@ body.light-theme .main-tab-btn.active {
 
 .gauge-center-val {
     font-family: var(--font-heading);
-    font-size: 3.2rem; /* Larger font for instant visibility */
+    font-size: 3.2rem;
     font-weight: 800;
     line-height: 1;
     letter-spacing: -1px;
     color: var(--text-primary);
-    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+    text-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
     transition: font-size 0.2s ease;
 }
 
 .gauge-center-val.status-text {
-    font-size: 1.6rem;
-    letter-spacing: 0.5px;
+    font-size: 1.15rem;
+    letter-spacing: 2px;
     font-weight: 700;
+    color: var(--text-secondary);
+    text-shadow: none;
+    text-transform: uppercase;
 }
 
 #compass-dial-group {
@@ -1499,7 +1502,7 @@ body.light-theme .main-tab-btn.active {
     padding: 1.25rem;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+    gap: 0.85rem;
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.15);
@@ -1542,7 +1545,31 @@ body.light-theme .main-tab-btn.active {
     color: var(--text-primary);
 }
 
-/* Nautical Map & Route Planning Card */
+.btn-share-location {
+    grid-column: 1 / -1;
+    background: rgba(14, 165, 233, 0.12);
+    border: 1px solid rgba(14, 165, 233, 0.35);
+    color: #38bdf8;
+    border-radius: 10px;
+    padding: 0.65rem 1rem;
+    font-family: var(--font-heading);
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.btn-share-location:hover {
+    background: rgba(14, 165, 233, 0.25);
+    color: #ffffff;
+    border-color: #38bdf8;
+}
+
+/* Nautical Map Card */
 .nav-map-card {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -1595,6 +1622,9 @@ body.light-theme .main-tab-btn.active {
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .map-pill-btn.active {
@@ -1605,10 +1635,19 @@ body.light-theme .main-tab-btn.active {
 .nav-map-container-wrapper {
     position: relative;
     width: 100%;
-    height: 440px;
+    height: 500px;
     border-radius: 14px;
     overflow: hidden;
     border: 1px solid var(--border-color);
+    transition: height 0.3s ease;
+}
+
+.nav-map-container-wrapper:fullscreen,
+.nav-map-container-wrapper:-webkit-full-screen {
+    width: 100vw !important;
+    height: 100vh !important;
+    border-radius: 0 !important;
+    border: none !important;
 }
 
 #nav-map {
@@ -1642,9 +1681,9 @@ body.light-theme .main-tab-btn.active {
     transform: scale(1.05);
 }
 
-.map-locate-btn {
-    bottom: 16px;
-    right: 16px;
+.map-fullscreen-btn {
+    top: 16px;
+    left: 16px;
 }
 
 .map-clear-btn {
@@ -1652,49 +1691,164 @@ body.light-theme .main-tab-btn.active {
     right: 16px;
 }
 
-/* Quick Destination Chips */
-.quick-dest-section {
+.map-locate-btn {
+    bottom: 16px;
+    right: 16px;
+}
+
+/* Multi-Waypoint Route Planner */
+.waypoint-planner-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    padding: 0.85rem;
+}
+
+.planner-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.planner-title {
+    font-family: var(--font-heading);
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.btn-add-waypoint {
+    background: rgba(14, 165, 233, 0.15);
+    border: 1px solid rgba(14, 165, 233, 0.35);
+    color: #38bdf8;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.2s ease;
+}
+
+.btn-add-waypoint:hover {
+    background: var(--accent-blue);
+    color: #ffffff;
+}
+
+.route-rule-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.route-rule-toggle input[type="checkbox"] {
+    accent-color: var(--accent-blue);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+
+.waypoint-rows-list {
     display: flex;
     flex-direction: column;
     gap: 0.45rem;
 }
 
-.quick-dest-title {
-    font-size: 0.76rem;
+.waypoint-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.waypoint-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.waypoint-row.active {
+    border-color: #38bdf8;
+    background: rgba(14, 165, 233, 0.12);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+.wp-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+
+.start-icon { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.dest-icon { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+.intermediate-icon { background: rgba(14, 165, 233, 0.2); color: #38bdf8; }
+
+.wp-details {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.wp-label {
+    font-size: 0.68rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
     color: var(--text-secondary);
 }
 
-.quick-dest-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
-
-.dest-chip-btn {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: var(--text-primary);
-    border-radius: 20px;
-    padding: 6px 12px;
-    font-size: 0.78rem;
+.wp-coord-text {
+    font-family: var(--font-heading);
+    font-size: 0.84rem;
     font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.wp-action-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
     cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
     transition: all 0.2s ease;
-    display: flex;
-    align-items: center;
-    gap: 5px;
 }
 
-.dest-chip-btn:hover, .dest-chip-btn.active {
-    background: rgba(14, 165, 233, 0.18);
-    border-color: var(--accent-blue);
-    color: var(--accent-blue);
+.wp-action-btn:hover {
+    color: #38bdf8;
 }
 
-/* Telemetry Dashboard Banner */
+.wp-action-btn.delete-btn:hover {
+    color: #ef4444;
+}
+
+/* Telemetry Dashboard Grid */
 .nav-telemetry-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
@@ -1746,35 +1900,36 @@ body.light-theme .main-tab-btn.active {
     border-radius: 12px;
     color: #ffffff;
     font-family: var(--font-heading);
-    font-size: 1.05rem;
-    font-weight: 700;
-    padding: 0.85rem 1.25rem;
+    font-size: 1.15rem;
+    font-weight: 800;
+    padding: 0.95rem 1.25rem;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.6rem;
-    box-shadow: 0 4px 16px rgba(16, 185, 129, 0.35);
+    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.4);
     transition: all 0.2s ease;
+    letter-spacing: 0.5px;
 }
 
 .cruise-btn-primary:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
+    box-shadow: 0 6px 24px rgba(16, 185, 129, 0.5);
 }
 
 .cruise-btn-primary.active {
     background: linear-gradient(135deg, #ef4444, #dc2626);
-    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.4);
+    box-shadow: 0 4px 20px rgba(239, 68, 68, 0.45);
     animation: pulse-cruise 2s infinite;
 }
 
 @keyframes pulse-cruise {
     0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-    50% { box-shadow: 0 0 16px 4px rgba(239, 68, 68, 0.6); }
+    50% { box-shadow: 0 0 18px 6px rgba(239, 68, 68, 0.65); }
 }
 
-/* Logbook drawer */
+/* Logbook section */
 .logbook-section {
     display: flex;
     flex-direction: column;
@@ -1806,7 +1961,7 @@ body.light-theme .main-tab-btn.active {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    max-height: 200px;
+    max-height: 240px;
     overflow-y: auto;
 }
 
@@ -1816,9 +1971,16 @@ body.light-theme .main-tab-btn.active {
     align-items: center;
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.04);
-    padding: 0.6rem 0.8rem;
+    padding: 0.65rem 0.85rem;
     border-radius: 8px;
     font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.logbook-item:hover {
+    background: rgba(14, 165, 233, 0.08);
+    border-color: rgba(14, 165, 233, 0.25);
 }
 
 .logbook-item-btn {
@@ -1876,22 +2038,12 @@ body.light-theme .nav-map-layer-pills {
     border-color: rgba(0, 0, 0, 0.08);
 }
 
-body.light-theme .dest-chip-btn {
-    background: rgba(0, 0, 0, 0.03);
-    border-color: rgba(0, 0, 0, 0.08);
-    color: #0f172a;
-}
-
-body.light-theme .dest-chip-btn:hover, body.light-theme .dest-chip-btn.active {
-    background: rgba(14, 165, 233, 0.1);
-    color: #0284c7;
-}
-
 body.light-theme .map-floating-btn {
     background: rgba(255, 255, 255, 0.95);
     border-color: rgba(0, 0, 0, 0.15);
     color: #0f172a;
 }
+
 
 
 
