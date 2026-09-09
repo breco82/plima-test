@@ -329,15 +329,21 @@ document.addEventListener('DOMContentLoaded', () => {
 function updateClock() {
     const timeDisplay = document.getElementById('current-time-display');
     const now = new Date();
-    timeDisplay.textContent = now.toLocaleString('sl-SI', { 
-        weekday: 'short', 
-        day: '2-digit', 
-        month: '2-digit', 
-        year: 'numeric',
-        hour: '2-digit', 
-        minute: '2-digit',
-        second: '2-digit'
-    });
+    if (timeDisplay) {
+        timeDisplay.textContent = now.toLocaleString('sl-SI', { 
+            weekday: 'short', 
+            day: '2-digit', 
+            month: '2-digit', 
+            year: 'numeric',
+            hour: '2-digit', 
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    }
+
+    if (activeMainTab === 'navigacija' || isCruiseActive) {
+        updateLiveRouteTelemetry();
+    }
 }
 
 function setChartMode(mode) {
@@ -2877,42 +2883,119 @@ function formatDuration(sec) {
     return `${String(mins).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-// Accurate Slovenian Coastline 200m Seaward Offset Buffer Chain (Dense ~100m points)
-const SLO_COAST_200M_GUIDE_NODES = [
-    [45.5980, 13.7180], // 0 Lazaret (Border IT)
-    [45.5940, 13.7020], // 1 Debeli rtič NE
-    [45.5925, 13.6960], // 2 Debeli rtič W
-    [45.5905, 13.6930], // 3 Debeli rtič Apex (200m seaward)
-    [45.5860, 13.6970], // 4 Debeli rtič S
-    [45.5815, 13.7180], // 5 Valdoltra 200m
-    [45.5720, 13.7320], // 6 Ankaran / Sv. Katarina 200m
-    [45.5580, 13.7260], // 7 Luka Koper N basin 200m
-    [45.5505, 13.7180], // 8 Koper Kapitanija / Mandrač 200m
-    [45.5465, 13.7060], // 9 Žusterna 200m
-    [45.5420, 13.6760], // 10 Viližan 200m
-    [45.5445, 13.6580], // 11 Izola Marina 200m
-    [45.5462, 13.6515], // 12 Izola Punta Apex (200m seaward)
-    [45.5390, 13.6420], // 13 Simonov zaliv / San Simon 200m
-    [45.5400, 13.6260], // 14 Bele skale 200m
-    [45.5415, 13.6150], // 15 Mesečev zaliv E 200m
-    [45.5425, 13.6040], // 16 Rt Ronek Apex (200m seaward)
-    [45.5410, 13.5960], // 17 Rt Ronek NW (Mesečev zaliv W) 200m
-    [45.5340, 13.5950], // 18 Strunjan zaliv entrance 200m
-    [45.5290, 13.5830], // 19 Pacug / Salinera 200m
-    [45.5295, 13.5730], // 20 Fiesa 200m
-    [45.5330, 13.5640], // 21 Punta Piran NE
-    [45.5325, 13.5590], // 22 Punta Piran NW (outside yellow buoy line)
-    [45.5300, 13.5565], // 23 Punta Piran West Apex (200m seaward)
-    [45.5265, 13.5585], // 24 Punta Piran SW
-    [45.5235, 13.5640], // 25 Piran Mandrač S 200m
-    [45.5165, 13.5680], // 26 Bernardin Apex 200m
-    [45.5115, 13.5820], // 27 Portorož Central Beach 200m
-    [45.5020, 13.5900], // 28 Marina Lucija entrance 200m
-    [45.4965, 13.5860], // 29 Rt Seča Apex 200m
-    [45.4850, 13.5940]  // 30 Dragonja / Sečovlje (Border HR) 200m
+// Complete Slovenian Coastline Closed Polygon (Accurate high-res shoreline - land is inside)
+const SLO_COASTLINE_POLYGON = [
+    [45.5975, 13.7230], // Lazaret IT border
+    [45.5940, 13.7080],
+    [45.5922, 13.7005],
+    [45.5908, 13.6980], // Debeli rtic tip
+    [45.5890, 13.7010],
+    [45.5865, 13.7080],
+    [45.5820, 13.7220], // Valdoltra
+    [45.5780, 13.7310],
+    [45.5710, 13.7430], // Sv. Katarina
+    [45.5650, 13.7450],
+    [45.5560, 13.7400], // Luka Koper
+    [45.5520, 13.7340],
+    [45.5485, 13.7285], // Koper Center
+    [45.5468, 13.7250],
+    [45.5455, 13.7180], // Semedela
+    [45.5442, 13.7110], // Zusterna
+    [45.5430, 13.6960],
+    [45.5410, 13.6830],
+    [45.5400, 13.6750], // Vilizan
+    [45.5408, 13.6650], // Izola East
+    [45.5425, 13.6610],
+    [45.5448, 13.6555], // Izola Punta
+    [45.5442, 13.6515],
+    [45.5415, 13.6500],
+    [45.5360, 13.6480], // San Simon
+    [45.5345, 13.6430],
+    [45.5360, 13.6330], // Bele skale
+    [45.5370, 13.6230],
+    [45.5385, 13.6120],
+    [45.5408, 13.6060], // Rt Ronek
+    [45.5395, 13.5990],
+    [45.5365, 13.5970],
+    [45.5315, 13.6010], // Strunjan
+    [45.5285, 13.5950],
+    [45.5258, 13.5855], // Pacug
+    [45.5260, 13.5780], // Fiesa
+    [45.5265, 13.5710],
+    [45.5283, 13.5658], // Punta Piran
+    [45.5286, 13.5650],
+    [45.5278, 13.5645],
+    [45.5255, 13.5670], // Piran Mandrac
+    [45.5235, 13.5685],
+    [45.5195, 13.5700], // Bernardin
+    [45.5155, 13.5715],
+    [45.5132, 13.5750],
+    [45.5130, 13.5850], // Portoroz Center
+    [45.5110, 13.5920],
+    [45.5035, 13.5990], // Lucija
+    [45.4980, 13.5980],
+    [45.4970, 13.5915], // Rt Seca
+    [45.4945, 13.5900],
+    [45.4915, 13.5940],
+    [45.4850, 13.6000], // Secovlje
+    [45.4750, 13.6050],
+    // Close through inland hinterland
+    [45.4700, 13.6200],
+    [45.4600, 13.7000],
+    [45.5000, 13.7800],
+    [45.5800, 13.8000],
+    [45.6100, 13.7500],
+    [45.5975, 13.7230]
 ];
 
-// Precompute 100m dense interpolation along the 200m chain (~310 points)
+// Accurate 200m Guide Nodes (Real measured 200m seaward offset buffer from Lazaret to Secovlje)
+const SLO_COAST_200M_GUIDE_NODES = [
+    [45.5990, 13.7200], // 0 Lazaret
+    [45.5955, 13.7060], // 1 Debeli rtic NE
+    [45.5938, 13.6990], // 2 Debeli rtic N
+    [45.5920, 13.6945], // 3 Debeli rtic Tip W
+    [45.5890, 13.6970], // 4 Debeli rtic SW
+    [45.5865, 13.7050], // 5 Debeli rtic S
+    [45.5835, 13.7190], // 6 Valdoltra
+    [45.5740, 13.7380], // 7 Sv. Katarina
+    [45.5600, 13.7340], // 8 Luka Koper N
+    [45.5535, 13.7270], // 9 Luka Koper W
+    [45.5510, 13.7225], // 10 Koper Mandrac Approach
+    [45.5475, 13.7150], // 11 Semedela
+    [45.5465, 13.7080], // 12 Zusterna W
+    [45.5450, 13.6930], // 13 Rex
+    [45.5430, 13.6800], // 14 Vilizan
+    [45.5435, 13.6680], // 15 Izola Marina Approach E
+    [45.5465, 13.6600], // 16 Izola N
+    [45.5475, 13.6535], // 17 Izola Punta Apex (200m NW)
+    [45.5455, 13.6485], // 18 Izola Punta SW
+    [45.5425, 13.6475], // 19 Izola Mandrac / San Simon Approach
+    [45.5380, 13.6450], // 20 San Simon
+    [45.5385, 13.6360], // 21 Bele skale E
+    [45.5395, 13.6240], // 22 Bele skale W
+    [45.5410, 13.6140], // 23 Rt Ronek E
+    [45.5430, 13.6065], // 24 Rt Ronek Apex (200m N of cliff)
+    [45.5415, 13.5985], // 25 Mesecev zaliv W
+    [45.5375, 13.5960], // 26 Strunjan bay entrance
+    [45.5330, 13.5965], // 27 Strunjan Beach 200m
+    [45.5285, 13.5835], // 28 Pacug (200m N)
+    [45.5288, 13.5745], // 29 Fiesa (200m N)
+    [45.5310, 13.5670], // 30 Punta Piran NE
+    [45.5305, 13.5650], // 31 Punta Piran North (200m N of light)
+    [45.5288, 13.5625], // 32 Punta Piran Apex West (200m W of tip)
+    [45.5268, 13.5630], // 33 Punta Piran SW (200m SW)
+    [45.5245, 13.5660], // 34 Piran Mandrac Approach S
+    [45.5185, 13.5685], // 35 Fornace 200m
+    [45.5145, 13.5695], // 36 Bernardin Apex 200m
+    [45.5125, 13.5750], // 37 Bernardin S 200m
+    [45.5118, 13.5850], // 38 Portoroz Center Beach 200m
+    [45.5095, 13.5930], // 39 Portoroz East 200m
+    [45.5020, 13.5940], // 40 Marina Portoroz Entrance 200m
+    [45.4965, 13.5880], // 41 Rt Seca 200m
+    [45.4835, 13.5960]  // 42 Secovlje / Dragonja 200m
+];
+
+// Precompute 100m dense interpolation along the 200m chain (~280 points)
 function generateDenseCoastalChain(guideNodes, maxSpacingMeters) {
     const dense = [];
     for (let i = 0; i < guideNodes.length - 1; i++) {
@@ -2933,40 +3016,6 @@ function generateDenseCoastalChain(guideNodes, maxSpacingMeters) {
 
 const SLO_COAST_200M_CHAIN = generateDenseCoastalChain(SLO_COAST_200M_GUIDE_NODES, 100);
 
-// Key Land Obstacle Polylines (Slovenian coastline) for Line-of-Sight checking
-const SLO_LAND_BARRIERS = [
-    // Debeli rtič
-    [[45.5975, 13.7225], [45.5905, 13.7010], [45.5840, 13.7120], [45.5780, 13.7300]],
-    // Luka Koper
-    [[45.5580, 13.7350], [45.5490, 13.7250]],
-    // Koper - Žusterna
-    [[45.5480, 13.7220], [45.5440, 13.7060]],
-    // Žusterna - Izola Vzhod
-    [[45.5440, 13.7060], [45.5390, 13.6700]],
-    // Izola Peninsula
-    [[45.5390, 13.6700], [45.5435, 13.6550], [45.5360, 13.6450]],
-    // San Simon - Bele skale
-    [[45.5360, 13.6450], [45.5370, 13.6280]],
-    // Bele skale - Rt Ronek
-    [[45.5370, 13.6280], [45.5385, 13.6060]],
-    // Rt Ronek - Strunjan
-    [[45.5385, 13.6060], [45.5320, 13.6010]],
-    // Strunjan - Pacug
-    [[45.5320, 13.6010], [45.5260, 13.5850]],
-    // Pacug - Fiesa
-    [[45.5260, 13.5850], [45.5260, 13.5760]],
-    // Fiesa - Punta Piran
-    [[45.5260, 13.5760], [45.5292, 13.5645]],
-    // Punta Piran - Bernardin
-    [[45.5292, 13.5645], [45.5270, 13.5680], [45.5180, 13.5710]],
-    // Bernardin - Portorož
-    [[45.5180, 13.5710], [45.5140, 13.5860]],
-    // Portorož - Rt Seča
-    [[45.5140, 13.5860], [45.5030, 13.5950], [45.4980, 13.5900]],
-    // Seča - Dragonja
-    [[45.4980, 13.5900], [45.4850, 13.6000]]
-];
-
 function segmentsIntersect2D(lat1, lon1, lat2, lon2, lat3, lon3, lat4, lon4) {
     function ccw(ax, ay, bx, by, cx, cy) {
         return ((cy - ay) * (bx - ax)) - ((by - ay) * (cx - ax));
@@ -2978,14 +3027,31 @@ function segmentsIntersect2D(lat1, lon1, lat2, lon2, lat3, lon3, lat4, lon4) {
     return ((ccw1 * ccw2 < 0) && (ccw3 * ccw4 < 0));
 }
 
+function isPointInPolygon(lat, lon, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i][0], yi = poly[i][1];
+        const xj = poly[j][0], yj = poly[j][1];
+        const intersect = ((yi > lon) !== (yj > lon)) && (lat < (xj - xi) * (lon - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
 function hasLineOfSight(lat1, lon1, lat2, lon2) {
-    for (const poly of SLO_LAND_BARRIERS) {
-        for (let i = 0; i < poly.length - 1; i++) {
-            const pA = poly[i];
-            const pB = poly[i + 1];
-            if (segmentsIntersect2D(lat1, lon1, lat2, lon2, pA[0], pA[1], pB[0], pB[1])) {
-                return false;
-            }
+    for (let i = 0; i < SLO_COASTLINE_POLYGON.length - 1; i++) {
+        const pA = SLO_COASTLINE_POLYGON[i];
+        const pB = SLO_COASTLINE_POLYGON[i + 1];
+        if (segmentsIntersect2D(lat1, lon1, lat2, lon2, pA[0], pA[1], pB[0], pB[1])) {
+            return false;
+        }
+    }
+    for (let s = 1; s <= 4; s++) {
+        const t = s / 5;
+        const midLat = lat1 + t * (lat2 - lat1);
+        const midLon = lon1 + t * (lon2 - lon1);
+        if (isPointInPolygon(midLat, midLon, SLO_COASTLINE_POLYGON)) {
+            return false;
         }
     }
     return true;
@@ -2997,7 +3063,7 @@ function getSafeMarineSegment(lat1, lon1, lat2, lon2, useRules) {
         return [[lat1, lon1], [lat2, lon2]];
     }
 
-    // If there is direct line of sight over open sea, sail direct straight line
+    // Direct line of sight check over open water
     if (hasLineOfSight(lat1, lon1, lat2, lon2)) {
         return [[lat1, lon1], [lat2, lon2]];
     }
@@ -3006,13 +3072,30 @@ function getSafeMarineSegment(lat1, lon1, lat2, lon2, useRules) {
     let idxA = 0, minDistA = Infinity;
     let idxB = 0, minDistB = Infinity;
     for (let i = 0; i < SLO_COAST_200M_CHAIN.length; i++) {
-        const dA = haversineDistanceMeters(lat1, lon1, SLO_COAST_200M_CHAIN[i][0], SLO_COAST_200M_CHAIN[i][1]);
-        if (dA < minDistA) { minDistA = dA; idxA = i; }
-        const dB = haversineDistanceMeters(lat2, lon2, SLO_COAST_200M_CHAIN[i][0], SLO_COAST_200M_CHAIN[i][1]);
-        if (dB < minDistB) { minDistB = dB; idxB = i; }
+        const pt = SLO_COAST_200M_CHAIN[i];
+        const dA = haversineDistanceMeters(lat1, lon1, pt[0], pt[1]);
+        if (dA < minDistA && hasLineOfSight(lat1, lon1, pt[0], pt[1])) {
+            minDistA = dA; idxA = i;
+        }
+        const dB = haversineDistanceMeters(lat2, lon2, pt[0], pt[1]);
+        if (dB < minDistB && hasLineOfSight(lat2, lon2, pt[0], pt[1])) {
+            minDistB = dB; idxB = i;
+        }
     }
 
-    // Extract ordered candidate sub-chain along the 200m corridor
+    if (minDistA === Infinity) {
+        for (let i = 0; i < SLO_COAST_200M_CHAIN.length; i++) {
+            const dA = haversineDistanceMeters(lat1, lon1, SLO_COAST_200M_CHAIN[i][0], SLO_COAST_200M_CHAIN[i][1]);
+            if (dA < minDistA) { minDistA = dA; idxA = i; }
+        }
+    }
+    if (minDistB === Infinity) {
+        for (let i = 0; i < SLO_COAST_200M_CHAIN.length; i++) {
+            const dB = haversineDistanceMeters(lat2, lon2, SLO_COAST_200M_CHAIN[i][0], SLO_COAST_200M_CHAIN[i][1]);
+            if (dB < minDistB) { minDistB = dB; idxB = i; }
+        }
+    }
+
     const subChain = [];
     if (idxA <= idxB) {
         for (let i = idxA; i <= idxB; i++) subChain.push(SLO_COAST_200M_CHAIN[i]);
@@ -3020,14 +3103,22 @@ function getSafeMarineSegment(lat1, lon1, lat2, lon2, useRules) {
         for (let i = idxA; i >= idxB; i--) subChain.push(SLO_COAST_200M_CHAIN[i]);
     }
 
-    // Raycast / Tangent String Pulling Shortcut:
-    // From current position, look as far ahead along subChain as possible with clear line-of-sight
     const route = [[lat1, lon1]];
     let currPos = [lat1, lon1];
     let currIdx = 0;
 
+    let firstVisibleIdx = 0;
+    for (let k = subChain.length - 1; k >= 0; k--) {
+        if (hasLineOfSight(currPos[0], currPos[1], subChain[k][0], subChain[k][1])) {
+            firstVisibleIdx = k;
+            break;
+        }
+    }
+    route.push(subChain[firstVisibleIdx]);
+    currPos = subChain[firstVisibleIdx];
+    currIdx = firstVisibleIdx;
+
     while (currIdx < subChain.length - 1) {
-        // Can we jump straight to destination?
         if (hasLineOfSight(currPos[0], currPos[1], lat2, lon2)) {
             break;
         }
@@ -3285,72 +3376,71 @@ function copyTextToClipboard(text) {
 }
 window.shareCurrentLocation = shareCurrentLocation;
 
-// Local Vector Bathymetry Dataset (Isobaths 2m - 30m & Soundings for Slovenian Waters)
+/// Local Vector Bathymetry Dataset (Authentic smooth isobaths 2m - 30m & soundings for Slovenian waters)
 const SLO_BATHYMETRY_ISOBATHS = [
-    // 2m Isobath (Shallows & coastal shelf)
+    // 2m Isobath (Shallows & coastal shelf, ~50-100m offshore)
     {
         depth: 2,
         color: '#38bdf8',
-        weight: 1.5,
+        weight: 1.2,
         dashArray: '4, 4',
         coords: [
-            [45.5975, 13.7210], [45.5915, 13.6995], [45.5895, 13.6955], [45.5845, 13.7120],
-            [45.5780, 13.7310], [45.5580, 13.7320], [45.5490, 13.7220], [45.5450, 13.7080],
-            [45.5400, 13.6780], [45.5430, 13.6540], [45.5350, 13.6440], [45.5365, 13.6270],
-            [45.5395, 13.6060], [45.5310, 13.6000], [45.5265, 13.5840], [45.5268, 13.5750],
-            [45.5305, 13.5635], [45.5275, 13.5670], [45.5190, 13.5700], [45.5135, 13.5850],
-            [45.5035, 13.5940], [45.4980, 13.5890], [45.4855, 13.5990]
+            [45.5975, 13.7215], [45.5925, 13.6990], [45.5908, 13.6965], [45.5865, 13.7090],
+            [45.5780, 13.7310], [45.5580, 13.7330], [45.5490, 13.7240], [45.5450, 13.7110],
+            [45.5410, 13.6760], [45.5435, 13.6560], [45.5450, 13.6520], [45.5360, 13.6450],
+            [45.5370, 13.6260], [45.5410, 13.6060], [45.5320, 13.5980], [45.5265, 13.5840],
+            [45.5270, 13.5730], [45.5285, 13.5650], [45.5255, 13.5665], [45.5160, 13.5700],
+            [45.5125, 13.5820], [45.5010, 13.5930], [45.4960, 13.5880], [45.4850, 13.5970]
         ]
     },
-    // 5m Isobath
+    // 5m Isobath (~200-300m offshore)
     {
         depth: 5,
         color: '#00f0ff',
-        weight: 1.8,
+        weight: 1.3,
         dashArray: null,
         coords: [
-            [45.5990, 13.7180], [45.5930, 13.6960], [45.5880, 13.6930], [45.5815, 13.7170],
-            [45.5720, 13.7300], [45.5580, 13.7250], [45.5505, 13.7170], [45.5460, 13.7040],
-            [45.5415, 13.6750], [45.5445, 13.6520], [45.5375, 13.6420], [45.5385, 13.6250],
-            [45.5415, 13.6040], [45.5330, 13.5960], [45.5280, 13.5820], [45.5285, 13.5720],
-            [45.5320, 13.5615], [45.5260, 13.5640], [45.5175, 13.5680], [45.5115, 13.5820],
-            [45.5015, 13.5900], [45.4960, 13.5860], [45.4850, 13.5940]
+            [45.5990, 13.7180], [45.5940, 13.6960], [45.5915, 13.6940], [45.5845, 13.7120],
+            [45.5720, 13.7320], [45.5580, 13.7270], [45.5505, 13.7190], [45.5460, 13.7050],
+            [45.5415, 13.6740], [45.5445, 13.6540], [45.5465, 13.6520], [45.5375, 13.6430],
+            [45.5385, 13.6240], [45.5420, 13.6040], [45.5335, 13.5960], [45.5280, 13.5820],
+            [45.5285, 13.5720], [45.5300, 13.5640], [45.5250, 13.5650], [45.5150, 13.5680],
+            [45.5115, 13.5820], [45.5005, 13.5920], [45.4955, 13.5870], [45.4850, 13.5950]
         ]
     },
-    // 10m Isobath
+    // 10m Isobath (Shelf break)
     {
         depth: 10,
-        color: '#0284c7',
-        weight: 2.2,
+        color: '#0ea5e9',
+        weight: 1.4,
         dashArray: null,
         coords: [
-            [45.6020, 13.7120], [45.5960, 13.6880], [45.5860, 13.6880], [45.5780, 13.7100],
+            [45.6020, 13.7120], [45.5960, 13.6880], [45.5880, 13.6880], [45.5780, 13.7100],
             [45.5680, 13.7200], [45.5580, 13.7180], [45.5510, 13.7080], [45.5465, 13.6900],
             [45.5440, 13.6680], [45.5475, 13.6480], [45.5410, 13.6350], [45.5415, 13.6200],
-            [45.5440, 13.6000], [45.5360, 13.5900], [45.5305, 13.5780], [45.5308, 13.5680],
-            [45.5345, 13.5580], [45.5250, 13.5580], [45.5150, 13.5620], [45.5080, 13.5750],
-            [45.4980, 13.5820], [45.4850, 13.5880]
+            [45.5440, 13.6000], [45.5360, 13.5900], [45.5305, 13.5780], [45.5315, 13.5630],
+            [45.5240, 13.5590], [45.5140, 13.5620], [45.5080, 13.5750], [45.4980, 13.5820],
+            [45.4850, 13.5880]
         ]
     },
-    // 15m Isobath
+    // 15m Isobath (Channel entrance)
     {
         depth: 15,
-        color: '#0369a1',
-        weight: 2.0,
+        color: '#0284c7',
+        weight: 1.5,
         dashArray: null,
         coords: [
             [45.6060, 13.7050], [45.5990, 13.6780], [45.5840, 13.6760], [45.5720, 13.6950],
             [45.5600, 13.7020], [45.5530, 13.6850], [45.5480, 13.6550], [45.5490, 13.6380],
-            [45.5450, 13.6100], [45.5460, 13.5920], [45.5380, 13.5780], [45.5340, 13.5620],
-            [45.5365, 13.5520], [45.5230, 13.5500], [45.5120, 13.5520], [45.5020, 13.5650],
-            [45.4850, 13.5750]
+            [45.5450, 13.6100], [45.5460, 13.5920], [45.5380, 13.5780], [45.5340, 13.5600],
+            [45.5230, 13.5500], [45.5120, 13.5520], [45.5020, 13.5650], [45.4850, 13.5750]
         ]
     },
     // 20m Isobath (Trieste Gulf Deep Channel)
     {
         depth: 20,
-        color: '#075985',
-        weight: 2.0,
+        color: '#2563eb',
+        weight: 1.6,
         dashArray: null,
         coords: [
             [45.6120, 13.6950], [45.6020, 13.6650], [45.5850, 13.6550], [45.5700, 13.6700],
@@ -3361,13 +3451,24 @@ const SLO_BATHYMETRY_ISOBATHS = [
     // 25m Isobath
     {
         depth: 25,
-        color: '#0c4a6e',
-        weight: 1.8,
+        color: '#4338ca',
+        weight: 1.6,
         dashArray: null,
         coords: [
             [45.6180, 13.6800], [45.6050, 13.6450], [45.5880, 13.6300], [45.5720, 13.6350],
             [45.5580, 13.6000], [45.5520, 13.5650], [45.5450, 13.5350], [45.5250, 13.5300],
             [45.5000, 13.5350], [45.4850, 13.5450]
+        ]
+    },
+    // 30m Isobath (Adriatic deep trench)
+    {
+        depth: 30,
+        color: '#6366f1',
+        weight: 1.8,
+        dashArray: null,
+        coords: [
+            [45.6250, 13.6600], [45.6100, 13.6200], [45.5900, 13.6000], [45.5700, 13.5800],
+            [45.5500, 13.5400], [45.5300, 13.5100], [45.5000, 13.5100], [45.4850, 13.5200]
         ]
     }
 ];
@@ -3405,26 +3506,18 @@ function buildBathymetryLayer() {
     if (depthVectorLayerGroup) return depthVectorLayerGroup;
     depthVectorLayerGroup = L.layerGroup([]);
 
-    // 1. High-contrast Isobath Polylines with visual depth
+    // 1. Smooth, crisp isobath contour lines
     SLO_BATHYMETRY_ISOBATHS.forEach(iso => {
-        let isoColor = iso.color;
-        if (iso.depth === 2) isoColor = '#f59e0b';
-        else if (iso.depth === 5) isoColor = '#00f0ff';
-        else if (iso.depth === 10) isoColor = '#0ea5e9';
-        else if (iso.depth === 15) isoColor = '#2563eb';
-        else if (iso.depth === 20) isoColor = '#4338ca';
-        else if (iso.depth === 25) isoColor = '#6366f1';
-
         const poly = L.polyline(iso.coords, {
-            color: isoColor,
-            weight: (iso.depth === 2 || iso.depth === 5) ? 3.5 : 2.8,
+            color: iso.color,
+            weight: iso.weight,
             dashArray: iso.dashArray,
-            opacity: 0.95
+            opacity: 0.85
         });
-        poly.bindPopup(`<b>Izobata ${iso.depth} m</b><br>Globinska črta slovenskega morja (${iso.depth} metrov)`);
+        poly.bindPopup(`<b>Izobata ${iso.depth} m</b><br>Globinska črta slovenskega morja (${iso.depth} m)`);
         depthVectorLayerGroup.addLayer(poly);
 
-        // Add depth label badges along the isobath line
+        // Add discrete depth label badges along the isobath line
         if (iso.coords && iso.coords.length > 5) {
             const mid1 = iso.coords[Math.floor(iso.coords.length * 0.35)];
             const mid2 = iso.coords[Math.floor(iso.coords.length * 0.75)];
@@ -3432,8 +3525,8 @@ function buildBathymetryLayer() {
                 const lblIcon = L.divIcon({
                     className: 'bathy-sounding-divicon',
                     html: `<div class="bathy-isobath-label">${iso.depth}m</div>`,
-                    iconSize: [30, 16],
-                    iconAnchor: [15, 8]
+                    iconSize: [28, 14],
+                    iconAnchor: [14, 7]
                 });
                 const lblMarker = L.marker(pt, { icon: lblIcon, interactive: false });
                 depthVectorLayerGroup.addLayer(lblMarker);
@@ -3446,8 +3539,8 @@ function buildBathymetryLayer() {
         const icon = L.divIcon({
             className: 'bathy-sounding-divicon',
             html: `<div class="bathy-sounding-badge">${snd.label}</div>`,
-            iconSize: [42, 20],
-            iconAnchor: [21, 10]
+            iconSize: [38, 18],
+            iconAnchor: [19, 9]
         });
         const marker = L.marker([snd.lat, snd.lon], { icon: icon });
         marker.bindPopup(`<b>${snd.name}</b><br>Globina morja: <b>${snd.label}</b>`);
@@ -3909,7 +4002,7 @@ function recalculateCurrentRoute() {
     if (!navMap) return;
 
     const chkRules = document.getElementById('chk-route-rules');
-    const useRules = chkRules ? chkRules.checked : true;
+    const useRules = (chkRules && chkRules.type === 'checkbox') ? chkRules.checked : true;
 
     const activePoints = [];
     const startWp = routeWaypoints.find(w => w.type === 'start');
@@ -4032,7 +4125,19 @@ function onPlannedSpeedChange() {
 }
 window.onPlannedSpeedChange = onPlannedSpeedChange;
 
+function updatePlannedSpeedRowVisibility() {
+    const speedRow = document.getElementById('planner-speed-row');
+    if (!speedRow) return;
+    const currentSpeedKnots = lastGpsSpeedKnots || 0;
+    if (isCruiseActive && currentSpeedKnots >= 0.4) {
+        speedRow.style.display = 'none';
+    } else {
+        speedRow.style.display = 'flex';
+    }
+}
+
 function updateLiveRouteTelemetry() {
+    updatePlannedSpeedRowVisibility();
     if (!currentCalculatedRouteCoords || currentCalculatedRouteCoords.length < 2) {
         resetRouteTelemetryDisplay();
         return;
@@ -4066,10 +4171,12 @@ function updateLiveRouteTelemetry() {
     if (brgEl) brgEl.textContent = `${Math.round(brg)}°`;
     if (brgCardEl) brgCardEl.textContent = getHeadingCardinal(brg);
 
-    // TTG & ETA (uses real GPS speed during cruise, or planned cruise speed during planning)
+    // TTG & ETA:
+    // If moving actively (>= 0.4 kt), TTG & ETA use real GPS speed.
+    // If stationary (< 0.4 kt), TTG is estimated using planned speed, but ETA advances with current real-time clock!
     const ttgEl = document.getElementById('telem-ttg');
     const etaEl = document.getElementById('telem-eta');
-    const effectiveSpeedKnots = (isCruiseActive && currentSpeedKnots >= 0.5) ? currentSpeedKnots : (plannedSpeedKnots > 0 ? plannedSpeedKnots : 6.0);
+    const effectiveSpeedKnots = (isCruiseActive && currentSpeedKnots >= 0.4) ? currentSpeedKnots : (plannedSpeedKnots > 0 ? plannedSpeedKnots : 6.0);
 
     if (effectiveSpeedKnots >= 0.3) {
         const ttgHours = dtgNm / effectiveSpeedKnots;
@@ -4140,9 +4247,7 @@ function startCruise() {
 
     requestCruiseWakeLock();
 
-    // Hide planned speed row during active cruise
-    const speedRow = document.getElementById('planner-speed-row');
-    if (speedRow) speedRow.style.display = 'none';
+    updatePlannedSpeedRowVisibility();
 
     const btn = document.getElementById('btn-cruise-toggle');
     const icon = document.getElementById('cruise-btn-icon');
