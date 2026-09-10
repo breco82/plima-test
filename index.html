@@ -17,7 +17,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- CSS Stylesheet -->
-    <link rel="stylesheet" href="index.css?v=66">
+    <link rel="stylesheet" href="index.css?v=68">
     <link rel="manifest" href="manifest.json">
     
     <!-- Leaflet Nautical Map CSS & JS -->
@@ -666,7 +666,7 @@
                         <div class="nav-map-layer-pills">
                             <button class="map-pill-btn active" id="pill-layer-osm" onclick="setNavMapLayer('osm')">Zemljevid</button>
                             <button class="map-pill-btn" id="pill-layer-satellite" onclick="setNavMapLayer('satellite')">Satelit</button>
-                            <button class="map-pill-btn" id="pill-layer-depth" onclick="toggleDepthContours()" title="Prikaz globinskih izobat"><i class="fa-solid fa-water"></i> Globine</button>
+                            <button class="map-pill-btn" id="pill-layer-depth" onclick="toggleNauticalChartLayer()" title="Prikaz uradnih navtičnih globin, ovir in razbitin"><i class="fa-solid fa-compass-drafting"></i> Navtični sloj</button>
                         </div>
                     </div>
 
@@ -680,6 +680,22 @@
                         <button class="map-floating-btn map-fullscreen-btn" id="btn-map-fullscreen" onclick="toggleMapFullscreen()" title="Celozaslonski prikaz">
                             <i class="fa-solid fa-expand" id="map-fullscreen-icon"></i>
                         </button>
+                        <!-- Tactical Cruise Guidance Heading & Target Arrow Widget -->
+                        <div class="map-guidance-widget" id="map-guidance-widget" style="display: none;">
+                            <svg viewBox="0 0 100 100" class="guidance-svg">
+                                <circle id="guidance-ring" cx="50" cy="50" r="42" fill="rgba(15, 23, 42, 0.55)" stroke="#ffffff" stroke-width="4.5"/>
+                                <!-- Top Rim Marker (Boat Heading / Phone Orientation) -->
+                                <g id="guidance-rim-marker">
+                                    <polygon id="guidance-rim-pip" points="50,4 43,14 57,14" fill="#ffffff"/>
+                                </g>
+                                <!-- Rotating Target Arrow -->
+                                <g id="guidance-target-arrow" style="transform-origin: 50px 50px; transform: rotate(0deg); transition: transform 0.25s ease-out;">
+                                    <polygon id="guidance-arrow-poly" points="50,16 64,68 50,56 36,68" fill="#22c55e" stroke="#0f172a" stroke-width="1.5" filter="drop-shadow(0 0 4px rgba(0,0,0,0.6))"/>
+                                    <circle cx="50" cy="50" r="4" fill="#ffffff"/>
+                                </g>
+                            </svg>
+                            <div class="guidance-delta-text" id="guidance-delta-text">&#10003; 0&deg;</div>
+                        </div>
                         <!-- Bottom right control: locate -->
                         <button class="map-floating-btn map-locate-btn" onclick="centerMapOnBoat()" title="Centriraj na mojo lokacijo">
                             <i class="fa-solid fa-crosshairs"></i>
@@ -807,8 +823,8 @@
     </div>
 
     <!-- Application Logic Scripts -->
-    <script src="Arcots.js?v=66"></script>
-    <script src="TideCalculator.js?v=66"></script>
-    <script src="index.js?v=66"></script>
+    <script src="Arcots.js?v=68"></script>
+    <script src="TideCalculator.js?v=68"></script>
+    <script src="index.js?v=68"></script>
 </body>
 </html>
