@@ -1,47 +1,908 @@
 /* index.js */
-/* Frontend Controller for the Slovenian Sea Level Tracker */
+/* Frontend Controller for the Slovenian Sea Level Tracker & Nautical Navigation System */
 
-// Global State & Navigation Variables
-let activeMainTab = 'plimovanje';
-let lastGpsCoords = null;
+// =========================================================================
+// SECTION 1: GLOBAL STATE (Plimovanje, Vreme & Navigacija)
+// =========================================================================
+let chartMode = 'level'; // 'level' or 'temp'
+let periodHours = 24;   // 24, 72, or 168
+let actualData = [];    // Loaded ARSO measurements
+let currentChart = null; // Highcharts instance
+let meteoForecastMap = new Map(); // Open-Meteo hourly pressure and wind map
+let openMeteoHourlyForecast = []; // Global variable to store hourly forecast items
+let activeHourlyDayOffset = null; // Track which day's hourly forecast is currently open
+let arsoForecastData = null; // Global variable to store raw ARSO Koper JSON forecast
+
+// Datum offset constant (Srednja gladina morja / Mean sea level - SVS2010 reference datum is 217.0 cm above gauge zero)
+const MEAN_SEA_LEVEL_OFFSET = 217.0;
+
+let deferredPrompt = null;
+
+// Weather Station active toggle state ('vida' for oceanographic buoy Vida, 'portoroz' for Portoroz Airport)
+let activeWeatherSource = 'vida';
+let weatherDataVida = null;
+let weatherDataPortoroz = null;
+let lastKnownVidaTemp = null;
+let lastKnownVidaTempTime = null;
+let lastKnownVidaRh = null;
+let lastKnownVidaRhTime = null;
+let currentMarineWaveHeight = 0.2;
+let marineHourlyWaves = new Map();
+
+// Navigation & Compass State
+const MAGNETIC_DECLINATION_SLOVENIA = 4.0;
+let phoneMagneticHeading = 0;
+let orientationActive = false;
 let lastGpsSpeedKnots = 0;
-let lastGpsHeading = null;
-let phoneMagneticHeading = null;
 let currentDialAngle = 0;
 let currentNeedleAngle = 0;
-let orientationActive = false;
+let lastGpsCoords = null;
+let lastGpsHeading = null;
+let hasCenteredInitialGps = false;
+let plannedSpeedKnots = 5.0;
 let gpsWatchId = null;
+
+// Leaflet Map & Routing State
 let navMap = null;
 let navMapLayers = {};
 let currentNavMapLayerType = 'osm';
-let showDepthContours = false;
-let depthVectorLayerGroup = null;
+let showDepthContours = true;
+let nauticalChartLayerGroup = null;
+let guide200mPolylineLayer = null;
+
 let navBoatMarker = null;
 let navPlannedRoutePolyline = null;
 let navRecordedTrackPolyline = null;
 let navPastCruisePolyline = null;
 let navPastCruiseMarkers = [];
-let activeWaypointTargetId = 'dest';
-let intermediateWpCounter = 1;
+
+// Multi-Waypoint Planner State
 let routeWaypoints = [
     { id: 'start', type: 'start', lat: null, lon: null, isGps: true, label: 'Moja lokacija (GPS)' },
     { id: 'dest', type: 'dest', lat: null, lon: null, label: 'Kliknite na karto za izbiro cilja' }
 ];
+let activeWaypointTargetId = 'dest';
+let intermediateWpCounter = 1;
 let waypointMarkers = {};
 let currentCalculatedRouteCoords = [];
+
+// Cruise Recording & Telemetry State
 let isCruiseActive = false;
 let cruiseStartTime = null;
+let cruiseDurationTimer = null;
 let cruiseTrackPoints = [];
 let cruiseTotalDistanceNm = 0;
 let cruiseMaxSpeedKnots = 0;
-let cruiseDurationTimer = null;
-let cruiseWakeLock = null;
 let lastRecordedGpsPos = null;
-let hasCenteredInitialGps = false;
-let currentChart = null;
-const MAGNETIC_DECLINATION_SLOVENIA = 3.8;
+let cruiseWakeLock = null;
 
-// Uporabnikov uradni 103-točkovni 200m obalni razmejitveni koridor (100% v morju)
+// Active tab tracker ('plimovanje', 'vreme', 'navigacija')
+let activeMainTab = 'plimovanje';
+
+// =========================================================================
+// SECTION 1B: PLIMOVANJE & VREME LOGIC (ARSO, BAZDARA, ALADIN, HIGHCHARTS)
+// =========================================================================
+
+function parseIsoLocal(isoStr) {
+    if (!isoStr) return new Date();
+    const cleanStr = isoStr.replace('Z', '');
+    const parts = cleanStr.split(/[-T: ]/);
+    if (parts.length >= 5) {
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        const hour = parseInt(parts[3], 10);
+        const minute = parseInt(parts[4], 10);
+        const second = parts[5] ? parseInt(parts[5], 10) : 0;
+        return new Date(year, month, day, hour, minute, second);
+    }
+    return new Date(isoStr);
+}
+
+function getDouglasSeaState(heightM) {
+    if (heightM === null || heightM === undefined || isNaN(heightM)) {
+        return { scale: '-', name: 'Neznano', icon: 'fa-water' };
+    }
+    const h = parseFloat(heightM);
+    if (h < 0.1) return { scale: '0', name: 'Mirno (brez valov)', icon: 'fa-water' };
+    if (h <= 0.5) return { scale: '1-2', name: 'Mirno do rahlo vzvalovano', icon: 'fa-water' };
+    if (h <= 1.25) return { scale: '3', name: 'Zmerno vzvalovano', icon: 'fa-water' };
+    if (h <= 2.5) return { scale: '4', name: 'Vzvalovano', icon: 'fa-water' };
+    if (h <= 4.0) return { scale: '5', name: 'Močno vzvalovano', icon: 'fa-water' };
+    if (h <= 6.0) return { scale: '6', name: 'Zelo vzvalovano', icon: 'fa-water' };
+    return { scale: '7+', name: 'Viharno morje', icon: 'fa-triangle-exclamation' };
+}
+
+function getWaveIconHtml(heightM) {
+    if (heightM === null || heightM === undefined || isNaN(heightM)) {
+        return '<i class="fa-solid fa-water" style="color:#38bdf8;"></i>';
+    }
+    const h = parseFloat(heightM);
+    if (h < 0.3) {
+        return '<i class="fa-solid fa-water" style="color:#38bdf8; font-size:1.1rem;" title="Douglas 0-1: Zelo mirno morje (< 0.3m)"></i>';
+    } else if (h < 0.8) {
+        return '<i class="fa-solid fa-water" style="color:#0284c7; font-size:1.2rem;" title="Douglas 2: Rahlo vzvalovano (0.3 - 0.8m)"></i>';
+    } else if (h < 1.5) {
+        return '<i class="fa-solid fa-water" style="color:#f59e0b; font-size:1.25rem;" title="Douglas 3-4: Zmerno vzvalovano morje (0.8 - 1.5m)"></i>';
+    } else {
+        return '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444; font-size:1.3rem;" title="Douglas 5+: Močno vzvalovano morje (> 1.5m) - Previdnost!"></i>';
+    }
+}
+
+function getWindArrowUnicode(deg) {
+    if (deg === null || deg === undefined || isNaN(deg)) return '•';
+    const arrows = ['↓', '↙', '←', '↖', '↑', '↗', '→', '↘'];
+    const idx = Math.round(deg / 45) % 8;
+    return arrows[idx];
+}
+
+function getWaveTooltipHtml(heightM) {
+    if (heightM === null || heightM === undefined || isNaN(heightM)) {
+        return '<div class="wave-tooltip-box"><div class="wave-tt-title">Valovanje morja: Podatek ni na voljo</div></div>';
+    }
+    const h = parseFloat(heightM);
+    const d = getDouglasSeaState(h);
+    let color = '#38bdf8';
+    if (h >= 1.5) color = '#ef4444';
+    else if (h >= 0.8) color = '#f59e0b';
+    
+    return `
+        <div class="wave-tooltip-box" style="border-left: 4px solid ${color};">
+            <div class="wave-tt-title"><i class="fa-solid fa-water"></i> Douglas lestvica: Stopnja <b>${d.scale}</b></div>
+            <div class="wave-tt-desc">Opis stanja: <b>${d.name}</b></div>
+            <div class="wave-tt-val">Značilna višina valov: <b>${h.toFixed(1)} m</b></div>
+        </div>
+    `;
+}
+
+function getActiveForecastData() {
+    return (arsoForecastData && arsoForecastData.days) ? arsoForecastData.days : openMeteoHourlyForecast;
+}
+
+function getWaveHeightForTime(targetDate) {
+    const tMs = targetDate.getTime();
+    if (marineHourlyWaves.has(tMs)) {
+        return marineHourlyWaves.get(tMs);
+    }
+    let closestVal = currentMarineWaveHeight;
+    let minDiff = Infinity;
+    for (let [keyMs, val] of marineHourlyWaves.entries()) {
+        const diff = Math.abs(keyMs - tMs);
+        if (diff < minDiff && diff <= 3 * 3600 * 1000) {
+            minDiff = diff;
+            closestVal = val;
+        }
+    }
+    return closestVal;
+}
+
+function getDayMaxWaveHeight(targetDate) {
+    const targetDay = targetDate.getDate();
+    const targetMonth = targetDate.getMonth();
+    let maxH = -1;
+    for (let [keyMs, val] of marineHourlyWaves.entries()) {
+        const d = new Date(keyMs);
+        if (d.getDate() === targetDay && d.getMonth() === targetMonth) {
+            if (val > maxH) maxH = val;
+        }
+    }
+    if (maxH >= 0) return maxH;
+    return getWaveHeightForTime(targetDate);
+}
+
+function getBeaufortInfo(windSpeedKmh) {
+    const s = parseFloat(windSpeedKmh) || 0;
+    if (s < 2) return { f: 0, name: 'Bezveterje' };
+    if (s <= 5) return { f: 1, name: 'Lahak vetrič' };
+    if (s <= 11) return { f: 2, name: 'Vetrič' };
+    if (s <= 19) return { f: 3, name: 'Rahli veter' };
+    if (s <= 28) return { f: 4, name: 'Zmerni veter' };
+    if (s <= 38) return { f: 5, name: 'Močni veter' };
+    if (s <= 49) return { f: 6, name: 'Zelo močen veter' };
+    if (s <= 61) return { f: 7, name: 'Hudi veter' };
+    if (s <= 74) return { f: 8, name: 'Vihar' };
+    if (s <= 88) return { f: 9, name: 'Močan vihar' };
+    if (s <= 102) return { f: 10, name: 'Polni vihar' };
+    if (s <= 117) return { f: 11, name: 'Orkanski vihar' };
+    return { f: 12, name: 'Orkan' };
+}
+
+function toggleSeaLegend() {
+    const legend = document.getElementById('sea-state-legend');
+    if (!legend) return;
+    const isHidden = legend.style.display === 'none' || !legend.style.display;
+    legend.style.display = isHidden ? 'block' : 'none';
+}
+window.toggleSeaLegend = toggleSeaLegend;
+
+function updateClock() {
+    const now = new Date();
+    const clockEl = document.getElementById('digital-clock') || document.getElementById('current-time-display');
+    if (clockEl) {
+        const h = String(now.getHours()).padStart(2, '0');
+        const m = String(now.getMinutes()).padStart(2, '0');
+        const s = String(now.getSeconds()).padStart(2, '0');
+        clockEl.textContent = `${h}:${m}:${s}`;
+    }
+}
+
+function parseArsoDate(dateStr) {
+    if (!dateStr) return null;
+    const parts = dateStr.trim().split(/[\s.]+/);
+    if (parts.length >= 4) {
+        const day = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        const year = parseInt(parts[2], 10);
+        const timeParts = parts[3].split(':');
+        const hour = parseInt(timeParts[0], 10);
+        const minute = parseInt(timeParts[1], 10);
+        return new Date(year, month, day, hour, minute);
+    }
+    return null;
+}
+
+function parseArsoHtml(htmlText) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlText, 'text/html');
+    const rows = doc.querySelectorAll('table.vode tr, table tr');
+    const parsedData = [];
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length >= 3) {
+            const dateStr = cells[0].textContent.trim();
+            const dateObj = parseArsoDate(dateStr);
+            if (dateObj) {
+                const level = parseFloat(cells[1].textContent.replace(',', '.').trim());
+                const temp = parseFloat(cells[2].textContent.replace(',', '.').trim());
+                if (!isNaN(level)) {
+                    parsedData.push({
+                        time: dateObj.getTime(),
+                        level: level,
+                        temp: isNaN(temp) ? null : temp
+                    });
+                }
+            }
+        }
+    });
+    return parsedData.sort((a, b) => a.time - b.time);
+}
+
+async function loadWaterData(arsoPeriod) {
+    const url = `https://meteo.arso.gov.si/uploads/probase/www/hidro/data/H9350_t_${arsoPeriod}.html`;
+    try {
+        const response = await fetch(url);
+        if (response.ok) {
+            const text = await response.text();
+            return parseArsoHtml(text);
+        }
+    } catch (e) {
+        console.warn(`ARSO fetch direct failed for period ${arsoPeriod}:`, e);
+    }
+    return [];
+}
+
+async function loadMergedWaterData(onFirstData) {
+    let loadedData = [];
+    try {
+        const bazdaraUrl = 'https://plimovanje-morja-default-rtdb.europe-west1.firebasedatabase.app/arso/koper_water.json';
+        const bazRes = await fetch(bazdaraUrl);
+        if (bazRes.ok) {
+            const bazJson = await bazRes.json();
+            if (bazJson && Array.isArray(bazJson)) {
+                loadedData = bazJson;
+                if (onFirstData && loadedData.length > 0) {
+                    onFirstData(loadedData);
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('Bazdara initial fetch error:', err);
+    }
+
+    try {
+        const arsoData = await loadWaterData(periodHours <= 24 ? 1 : (periodHours <= 72 ? 7 : 30));
+        if (arsoData && arsoData.length > 0) {
+            loadedData = arsoData;
+        }
+    } catch (err) {
+        console.warn('Live ARSO fetch error:', err);
+    }
+
+    return loadedData;
+}
+
+function getWindDirectionSlo(deg) {
+    if (deg === null || deg === undefined || isNaN(deg)) return '--';
+    const directions = ['S', 'SSV', 'SV', 'VSV', 'V', 'VJV', 'JV', 'JJV', 'J', 'JJZ', 'JZ', 'ZJZ', 'Z', 'ZSZ', 'SZ', 'SSZ'];
+    const idx = Math.round(deg / 22.5) % 16;
+    return directions[idx];
+}
+
+function getWindArrowHtml(deg) {
+    if (deg === null || deg === undefined || isNaN(deg)) return '';
+    return `<i class="fa-solid fa-arrow-up" style="transform: rotate(${deg}deg); display: inline-block;"></i>`;
+}
+
+function getWindDegFromSlo(dirStr) {
+    if (!dirStr) return null;
+    const map = {
+        'S': 0, 'N': 0, 'SSV': 22.5, 'NNE': 22.5, 'SV': 45, 'NE': 45, 'VSV': 67.5, 'ENE': 67.5,
+        'V': 90, 'E': 90, 'VJV': 112.5, 'ESE': 112.5, 'JV': 135, 'SE': 135, 'JJV': 157.5, 'SSE': 157.5,
+        'J': 180, 'SSW': 202.5, 'JJZ': 202.5, 'JZ': 225, 'SW': 225, 'ZJZ': 247.5, 'WSW': 247.5,
+        'Z': 270, 'W': 270, 'ZSZ': 292.5, 'WNW': 292.5, 'SZ': 315, 'NW': 315, 'SSZ': 337.5, 'NNW': 337.5
+    };
+    return map[dirStr.trim().toUpperCase()] || null;
+}
+
+async function fetchWeatherWithFallback(targetUrl, isXml = false) {
+    try {
+        const res = await fetch(targetUrl);
+        if (res.ok) {
+            return isXml ? await res.text() : await res.json();
+        }
+    } catch (e) {
+        console.warn('Direct weather fetch failed:', targetUrl);
+    }
+    return null;
+}
+
+async function fetchArsoForecastViaProxy() {
+    return null;
+}
+
+async function fetchWaveHeight() {
+    try {
+        const res = await fetch('https://plimovanje-morja-default-rtdb.europe-west1.firebasedatabase.app/arso/wave.json');
+        if (res.ok) {
+            const data = await res.json();
+            if (data && data.wave_height !== undefined) {
+                currentMarineWaveHeight = parseFloat(data.wave_height);
+            }
+        }
+    } catch (e) {
+        console.warn('Wave height fetch error:', e);
+    }
+}
+
+function mapArsoIconToFa(nnIcon) {
+    if (!nnIcon) return { icon: 'fa-sun', color: '#f59e0b' };
+    const icon = nnIcon.toLowerCase();
+    if (icon.includes('clear') || icon.includes('jasno') || icon.includes('soncno')) return { icon: 'fa-sun', color: '#f59e0b' };
+    if (icon.includes('mostClear') || icon.includes('pretezno_jasno')) return { icon: 'fa-cloud-sun', color: '#f59e0b' };
+    if (icon.includes('partlyCloudy') || icon.includes('delno_oblacno')) return { icon: 'fa-cloud-sun', color: '#94a3b8' };
+    if (icon.includes('modCloudy') || icon.includes('zmerno_oblacno')) return { icon: 'fa-cloud', color: '#64748b' };
+    if (icon.includes('prevCloudy') || icon.includes('pretezno_oblacno')) return { icon: 'fa-cloud', color: '#64748b' };
+    if (icon.includes('overcast') || icon.includes('oblacno')) return { icon: 'fa-cloud', color: '#475569' };
+    if (icon.includes('fg') || icon.includes('megla')) return { icon: 'fa-smog', color: '#94a3b8' };
+    if (icon.includes('lightRain') || icon.includes('rahle_padavine') || icon.includes('rahlo_dezevalo')) return { icon: 'fa-cloud-rain', color: '#38bdf8' };
+    if (icon.includes('rain') || icon.includes('dez')) return { icon: 'fa-cloud-showers-heavy', color: '#0284c7' };
+    if (icon.includes('heavyRain') || icon.includes('mocan_dez')) return { icon: 'fa-cloud-showers-water', color: '#0369a1' };
+    if (icon.includes('shower') || icon.includes('ploha')) return { icon: 'fa-cloud-sun-rain', color: '#0284c7' };
+    if (icon.includes('tsShower') || icon.includes('nevihta') || icon.includes('ploha_z_nevihto')) return { icon: 'fa-cloud-bolt', color: '#eab308' };
+    if (icon.includes('ts') || icon.includes('grmenje')) return { icon: 'fa-bolt', color: '#eab308' };
+    if (icon.includes('snow') || icon.includes('sneg')) return { icon: 'fa-snowflake', color: '#e2e8f0' };
+    return { icon: 'fa-cloud-sun', color: '#f59e0b' };
+}
+
+function getWeatherIconHtml(nnIcon, sizeStyle = '') {
+    const mapped = mapArsoIconToFa(nnIcon);
+    return `<i class="fa-solid ${mapped.icon}" style="color:${mapped.color}; ${sizeStyle}"></i>`;
+}
+
+function updateOpenMeteoFallbackCards() {
+    const container = document.getElementById('forecast-container');
+    if (!container) return;
+    if (openMeteoHourlyForecast.length === 0) return;
+
+    let html = '';
+    const daysToShow = Math.min(3, openMeteoHourlyForecast.length);
+    for (let i = 0; i < daysToShow; i++) {
+        const item = openMeteoHourlyForecast[i];
+        const dateObj = new Date(item.time || item.date);
+        const dayName = dateObj.toLocaleDateString('sl-SI', { weekday: 'short', day: 'numeric', month: 'numeric' });
+        const iconHtml = getWeatherIconHtml(item.icon || 'clear', 'font-size: 1.8rem;');
+        const waveH = getDayMaxWaveHeight(dateObj);
+        const waveIcon = getWaveIconHtml(waveH);
+
+        html += `
+            <div class="forecast-card" onclick="toggleHourlyForecast(${i})">
+                <div class="fc-header">
+                    <span class="fc-day">${dayName}</span>
+                    <span class="fc-icon">${iconHtml}</span>
+                </div>
+                <div class="fc-body">
+                    <div class="fc-temp"><b>${Math.round(item.temp_max || item.temp || 22)}°C</b> <small style="color:#94a3b8;">${Math.round(item.temp_min || item.temp || 16)}°C</small></div>
+                    <div class="fc-wind"><i class="fa-solid fa-wind"></i> ${Math.round(item.wind_speed || 10)} km/h ${getWindDirectionSlo(item.wind_deg)}</div>
+                    <div class="fc-wave">${waveIcon} <b>${waveH.toFixed(1)} m</b></div>
+                </div>
+            </div>
+        `;
+    }
+    container.innerHTML = html;
+}
+
+async function loadArsoForecast() {
+    try {
+        const res = await fetch('https://plimovanje-morja-default-rtdb.europe-west1.firebasedatabase.app/arso/forecast_koper.json');
+        if (res.ok) {
+            const data = await res.json();
+            if (data && (data.days || Array.isArray(data))) {
+                arsoForecastData = data;
+                renderArsoForecast();
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn('ARSO forecast json fetch error:', e);
+    }
+    updateOpenMeteoFallbackCards();
+}
+
+function renderArsoForecast() {
+    const container = document.getElementById('forecast-container');
+    if (!container) return;
+    if (!arsoForecastData || !arsoForecastData.days) {
+        updateOpenMeteoFallbackCards();
+        return;
+    }
+
+    let html = '';
+    const days = arsoForecastData.days.slice(0, 3);
+    days.forEach((day, idx) => {
+        const dateObj = new Date(day.date);
+        const dayName = dateObj.toLocaleDateString('sl-SI', { weekday: 'short', day: 'numeric', month: 'numeric' });
+        const iconHtml = getWeatherIconHtml(day.icon, 'font-size: 1.8rem;');
+        const waveH = getDayMaxWaveHeight(dateObj);
+        const waveIcon = getWaveIconHtml(waveH);
+
+        html += `
+            <div class="forecast-card" onclick="toggleHourlyForecast(${idx})">
+                <div class="fc-header">
+                    <span class="fc-day">${dayName}</span>
+                    <span class="fc-icon">${iconHtml}</span>
+                </div>
+                <div class="fc-body">
+                    <div class="fc-temp"><b>${Math.round(day.temp_max)}°C</b> <small style="color:#94a3b8;">${Math.round(day.temp_min)}°C</small></div>
+                    <div class="fc-wind"><i class="fa-solid fa-wind"></i> ${Math.round(day.wind_speed)} km/h ${getWindDirectionSlo(day.wind_deg)}</div>
+                    <div class="fc-wave">${waveIcon} <b>${waveH.toFixed(1)} m</b></div>
+                </div>
+            </div>
+        `;
+    });
+    container.innerHTML = html;
+}
+
+function renderArso1hForecast(dayOffset = 0) {
+    const hourlyBox = document.getElementById('hourly-forecast-list');
+    if (!hourlyBox) return;
+    if (!arsoForecastData || !arsoForecastData.days || !arsoForecastData.days[dayOffset]) {
+        hourlyBox.innerHTML = '<div style="padding:10px; color:#94a3b8;">Podrobna urna napoved ni na voljo.</div>';
+        return;
+    }
+
+    const day = arsoForecastData.days[dayOffset];
+    const hours = day.hourly || [];
+    let html = '';
+    hours.forEach(h => {
+        const timeStr = h.time || '00:00';
+        const iconHtml = getWeatherIconHtml(h.icon, 'font-size: 1.2rem;');
+        const waveH = h.wave_height !== undefined ? parseFloat(h.wave_height) : currentMarineWaveHeight;
+        const waveIcon = getWaveIconHtml(waveH);
+
+        html += `
+            <div class="hourly-row">
+                <div class="hr-time">${timeStr}</div>
+                <div class="hr-icon">${iconHtml}</div>
+                <div class="hr-temp"><b>${Math.round(h.temp)}°C</b></div>
+                <div class="hr-wind"><i class="fa-solid fa-wind"></i> ${Math.round(h.wind_speed)} km/h ${getWindDirectionSlo(h.wind_deg)}</div>
+                <div class="hr-wave">${waveIcon} ${waveH.toFixed(1)} m</div>
+            </div>
+        `;
+    });
+    hourlyBox.innerHTML = html;
+}
+
+function renderArso3hForecast(dayOffset) {
+    renderArso1hForecast(dayOffset);
+}
+
+function toggleHourlyForecast(dayOffset) {
+    const panel = document.getElementById('hourly-forecast-panel');
+    if (!panel) return;
+
+    if (activeHourlyDayOffset === dayOffset && panel.style.display !== 'none') {
+        panel.style.display = 'none';
+        activeHourlyDayOffset = null;
+        return;
+    }
+
+    activeHourlyDayOffset = dayOffset;
+    panel.style.display = 'block';
+    renderArso1hForecast(dayOffset);
+}
+window.toggleHourlyForecast = toggleHourlyForecast;
+
+async function loadOpenMeteoPressures() {
+    try {
+        const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=45.548&longitude=13.73&hourly=surface_pressure,wind_speed_10m,wind_direction_10m,wave_height&timezone=Europe%2FLjubljana');
+        if (res.ok) {
+            const data = await res.json();
+            if (data && data.hourly && data.hourly.time) {
+                data.hourly.time.forEach((tStr, idx) => {
+                    const tMs = new Date(tStr).getTime();
+                    meteoForecastMap.set(tMs, {
+                        pressure: data.hourly.surface_pressure[idx],
+                        wind_speed: data.hourly.wind_speed_10m[idx],
+                        wind_deg: data.hourly.wind_direction_10m[idx]
+                    });
+                    if (data.hourly.wave_height && data.hourly.wave_height[idx] !== null) {
+                        marineHourlyWaves.set(tMs, data.hourly.wave_height[idx]);
+                    }
+                });
+            }
+        }
+    } catch (e) {
+        console.warn('OpenMeteo pressure fetch error:', e);
+    }
+}
+
+async function refreshData() {
+    updateClock();
+    await loadOpenMeteoPressures();
+    await fetchWaveHeight();
+    await loadArsoForecast();
+    actualData = await loadMergedWaterData(data => {
+        actualData = data;
+        renderChart();
+        updateWaterGauge();
+    });
+    renderChart();
+    updateWaterGauge();
+    updateMoonPhase();
+}
+window.refreshData = refreshData;
+
+function calculateTideExtrema(currentTime) {
+    return { high: '--', low: '--' };
+}
+
+function getArsoDescriptionFromIcon(iconName) {
+    if (!iconName) return 'Jasno';
+    const m = iconName.toLowerCase();
+    if (m.includes('clear') || m.includes('jasno')) return 'Jasno';
+    if (m.includes('cloud') || m.includes('oblacno')) return 'Oblačno';
+    if (m.includes('rain') || m.includes('dez')) return 'Deževno';
+    return 'Zmerno oblačno';
+}
+
+async function parseArsoAmsXml(stationId, cb) {
+    const url = `https://meteo.arso.gov.si/uploads/probase/www/observ/surface/text/sl/observationAms_${stationId}_latest.xml`;
+    try {
+        const res = await fetch(url);
+        if (res.ok) {
+            const xmlText = await res.text();
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+            if (cb) cb(xmlDoc);
+        }
+    } catch (e) {
+        console.warn('AMS XML fetch error:', e);
+    }
+}
+
+async function loadWeather(forceLoadingState = false) {
+    await fetchWaveHeight();
+    await loadArsoForecast();
+    renderWeather();
+}
+window.loadWeather = loadWeather;
+
+function parseArsoXmlDate(dateStr) {
+    return parseArsoDate(dateStr);
+}
+
+function getForecastItemForTime(dateObj) {
+    return null;
+}
+
+function renderWeather() {
+    const waveEl = document.getElementById('weather-wave-val');
+    const waveIconEl = document.getElementById('weather-wave-icon');
+    if (waveEl) waveEl.textContent = `${currentMarineWaveHeight.toFixed(1)} m`;
+    if (waveIconEl) waveIconEl.innerHTML = getWaveIconHtml(currentMarineWaveHeight);
+}
+
+function updateWaterGauge(relativeLevel) {
+    if (actualData.length === 0) return;
+    const latest = actualData[actualData.length - 1];
+    const relVal = (latest.level - MEAN_SEA_LEVEL_OFFSET);
+    const relSign = relVal >= 0 ? `+${relVal.toFixed(1)}` : relVal.toFixed(1);
+    
+    const gaugeValEl = document.getElementById('water-gauge-val');
+    const gaugeAbsEl = document.getElementById('water-gauge-abs');
+    const gaugeTempEl = document.getElementById('water-gauge-temp');
+    
+    if (gaugeValEl) gaugeValEl.textContent = `${relSign} cm`;
+    if (gaugeAbsEl) gaugeAbsEl.textContent = `Absolutna višina: ${latest.level.toFixed(1)} cm`;
+    if (gaugeTempEl && latest.temp !== null) gaugeTempEl.textContent = `Temperatura morja: ${latest.temp.toFixed(1)}°C`;
+}
+
+function setWeatherSource(source) {
+    activeWeatherSource = source;
+    const btnVida = document.getElementById('btn-source-vida');
+    const btnPort = document.getElementById('btn-source-portoroz');
+    if (btnVida) btnVida.classList.toggle('active', source === 'vida');
+    if (btnPort) btnPort.classList.toggle('active', source === 'portoroz');
+    loadWeather();
+}
+window.setWeatherSource = setWeatherSource;
+
+function setPeriod(hours) {
+    periodHours = hours;
+    document.querySelectorAll('.period-btn').forEach(btn => btn.classList.remove('active'));
+    const btn = document.getElementById(`period-${hours}`);
+    if (btn) btn.classList.add('active');
+    renderChart();
+}
+window.setPeriod = setPeriod;
+
+function setChartMode(mode) {
+    chartMode = mode;
+    document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+    const btn = document.getElementById(`mode-${mode}`);
+    if (btn) btn.classList.add('active');
+    renderChart();
+}
+window.setChartMode = setChartMode;
+
+function renderChart() {
+    const chartContainer = document.getElementById('chart-container');
+    if (!chartContainer || typeof Highcharts === 'undefined') return;
+
+    const isLight = document.body.classList.contains('light-theme');
+    const textColor = isLight ? '#1e293b' : '#f8fafc';
+    const gridColor = isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.08)';
+
+    const seriesData = [];
+    actualData.forEach(pt => {
+        const yVal = chartMode === 'level' ? (pt.level - MEAN_SEA_LEVEL_OFFSET) : pt.temp;
+        if (yVal !== null && !isNaN(yVal)) {
+            seriesData.push([pt.time, yVal]);
+        }
+    });
+
+    const series = [{
+        name: chartMode === 'level' ? 'Relativna gladina (SVS2010)' : 'Temperatura morja',
+        data: seriesData,
+        color: chartMode === 'level' ? '#0284c7' : '#f59e0b',
+        type: 'spline',
+        lineWidth: 2.5
+    }];
+
+    currentChart = Highcharts.chart('chart-container', {
+        chart: {
+            backgroundColor: 'transparent',
+            style: { fontFamily: 'inherit' }
+        },
+        title: { text: null },
+        credits: { enabled: false },
+        xAxis: {
+            type: 'datetime',
+            labels: { style: { color: textColor } },
+            lineColor: gridColor,
+            tickColor: gridColor
+        },
+        yAxis: {
+            title: { text: chartMode === 'level' ? 'Višina (cm)' : 'Temperatura (°C)', style: { color: textColor } },
+            labels: { style: { color: textColor } },
+            gridLineColor: gridColor,
+            plotLines: chartMode === 'level' ? [{
+                value: 0,
+                color: '#ef4444',
+                width: 1.5,
+                dashStyle: 'ShortDash',
+                label: { text: 'Srednja gladina morja (0 cm)', style: { color: '#ef4444', fontSize: '10px' } }
+            }] : []
+        },
+        legend: { enabled: false },
+        tooltip: {
+            shared: true,
+            useHTML: true,
+            formatter: function () {
+                let s = `<div style="font-size:12px;"><b>${Highcharts.dateFormat('%A, %e. %b %Y, %H:%M', this.x)}</b><br/>`;
+                this.points.forEach(point => {
+                    s += `<span style="color:${point.color}">●</span> ${point.series.name}: <b>${point.y.toFixed(1)} ${chartMode === 'level' ? 'cm' : '°C'}</b><br/>`;
+                });
+                s += `</div>`;
+                return s;
+            }
+        },
+        series: series
+    });
+}
+
+function drawRealisticMoon(ageDays) {
+    const canvas = document.getElementById('moon-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    const r = (w / 2) - 3;
+    const cx = w / 2;
+    const cy = h / 2;
+    
+    ctx.clearRect(0, 0, w, h);
+    
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+    
+    const darkGrad = ctx.createRadialGradient(cx - r*0.3, cy - r*0.3, r*0.1, cx, cy, r);
+    darkGrad.addColorStop(0, '#2d3748');
+    darkGrad.addColorStop(0.8, '#1e293b');
+    darkGrad.addColorStop(1, '#0f172a');
+    ctx.fillStyle = darkGrad;
+    ctx.fill();
+    ctx.restore();
+    
+    const synodic = 29.530588853;
+    const phase = ((ageDays % synodic) + synodic) % synodic / synodic;
+    
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+    
+    ctx.beginPath();
+    if (phase < 0.5) {
+        ctx.arc(cx, cy, r, -Math.PI/2, Math.PI/2, false);
+        const k = Math.cos(phase * 2 * Math.PI);
+        ctx.ellipse(cx, cy, Math.max(0.1, Math.abs(r * k)), r, 0, Math.PI/2, -Math.PI/2, k > 0);
+    } else {
+        ctx.arc(cx, cy, r, Math.PI/2, -Math.PI/2, false);
+        const k = Math.cos(phase * 2 * Math.PI);
+        ctx.ellipse(cx, cy, Math.max(0.1, Math.abs(r * k)), r, 0, -Math.PI/2, Math.PI/2, k > 0);
+    }
+    ctx.closePath();
+    
+    const litGrad = ctx.createRadialGradient(cx - r*0.3, cy - r*0.3, r*0.05, cx, cy, r);
+    litGrad.addColorStop(0, '#ffffff');
+    litGrad.addColorStop(0.3, '#f8fafc');
+    litGrad.addColorStop(0.7, '#e2e8f0');
+    litGrad.addColorStop(1, '#94a3b8');
+    ctx.fillStyle = litGrad;
+    ctx.fill();
+    ctx.restore();
+    
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+}
+
+function updateMoonPhase() {
+    const now = new Date();
+    const refNewMoon = 947182440000;
+    const synodicMonth = 2551442977;
+    
+    const diffMs = now.getTime() - refNewMoon;
+    const ageDays = ((diffMs % synodicMonth) + synodicMonth) % synodicMonth / 86400000;
+    
+    let phaseName = '';
+    let coeffDesc = 'Normalno plimovanje';
+    
+    if (ageDays < 1.0 || ageDays >= 28.53) {
+        phaseName = 'Prazna Luna - Mlaj';
+        coeffDesc = 'Močno plimovanje (Sizigij)';
+    } else if (ageDays < 6.38) {
+        phaseName = 'Rastoča Luna';
+    } else if (ageDays < 8.38) {
+        phaseName = 'Prvi krajec';
+        coeffDesc = 'Šibko plimovanje (Kvadratura)';
+    } else if (ageDays < 13.76) {
+        phaseName = 'Naraščajoča Luna';
+    } else if (ageDays < 15.76) {
+        phaseName = 'Polna Luna - Ščip';
+        coeffDesc = 'Močno plimovanje (Sizigij)';
+    } else if (ageDays < 21.14) {
+        phaseName = 'Upadajoča Luna';
+    } else if (ageDays < 23.14) {
+        phaseName = 'Zadnji krajec';
+        coeffDesc = 'Šibko plimovanje (Kvadratura)';
+    } else {
+        phaseName = 'Prazneča Luna';
+    }
+    
+    drawRealisticMoon(ageDays);
+    
+    const phaseNameEl = document.getElementById('moon-phase-name');
+    const coeffValEl = document.getElementById('moon-coeff-val');
+    if (phaseNameEl) phaseNameEl.textContent = phaseName;
+    if (coeffValEl) coeffValEl.innerHTML = `Tip: ${coeffDesc}`;
+}
+
+function toggleTheme() {
+    document.body.classList.toggle('light-theme');
+    const isLight = document.body.classList.contains('light-theme');
+    localStorage.setItem('theme', isLight ? 'light' : 'dark');
+    updateThemeIcon();
+    renderChart();
+}
+window.toggleTheme = toggleTheme;
+
+function updateThemeIcon() {
+    const icon = document.getElementById('theme-icon-indicator');
+    if (!icon) return;
+    if (document.body.classList.contains('light-theme')) {
+        icon.className = 'fa-solid fa-moon';
+        icon.style.color = '#475569';
+    } else {
+        icon.className = 'fa-solid fa-sun';
+        icon.style.color = '#e2e8f0';
+    }
+}
+
+// =========================================================================
+// SECTION 2: NAUTICAL ENGINE & GEOMETRY CONSTANTS
+// =========================================================================
+
+function getShortestAngleDelta(fromAngle, toAngle) {
+    return ((toAngle - fromAngle) % 360 + 540) % 360 - 180;
+}
+
+function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+function calculateBearing(lat1, lon1, lat2, lon2) {
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
+    const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+              Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
+    let brng = Math.atan2(y, x) * 180 / Math.PI;
+    return (brng + 360) % 360;
+}
+
+function formatDuration(sec) {
+    if (isNaN(sec) || sec <= 0) return '00:00:00';
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function formatNauticalCoord(degDec, isLat) {
+    if (degDec === null || degDec === undefined || isNaN(degDec)) {
+        return isLat ? "--° --.---' N" : "---° --.---' E";
+    }
+    const absVal = Math.abs(degDec);
+    const degrees = Math.floor(absVal);
+    const minutes = (absVal - degrees) * 60;
+    const hemisphere = isLat ? (degDec >= 0 ? 'N' : 'S') : (degDec >= 0 ? 'E' : 'W');
+    const degStr = isLat ? String(degrees).padStart(2, '0') : String(degrees).padStart(3, '0');
+    const minStr = minutes.toFixed(3).padStart(6, '0');
+    return `${degStr}° ${minStr}' ${hemisphere}`;
+}
+
+function getHeadingCardinal(deg) {
+    if (deg === null || deg === undefined || isNaN(deg)) return '--';
+    const cardinals = ['S', 'SSV', 'SV', 'VSV', 'V', 'VJV', 'JV', 'JJV', 'J', 'JJZ', 'JZ', 'ZJZ', 'Z', 'ZSZ', 'SZ', 'SSZ'];
+    const normalized = (deg % 360 + 360) % 360;
+    const idx = Math.round(normalized / 22.5) % 16;
+    return cardinals[idx];
+}
+
 const SLO_COAST_200M_GUIDE_NODES = [
     [45.594560, 13.720400],
     [45.593786, 13.718967],
@@ -145,8 +1006,9 @@ const SLO_COAST_200M_GUIDE_NODES = [
     [45.484172, 13.589854],
     [45.482396, 13.588688],
     [45.481762, 13.586959],
-    [45.480198, 13.584447]
+    [45.480198, 13.584447],
 ];
+
 
 // High-precision Slovenian Coastline Closed Polygon (OSM Verified)
 const SLO_COASTLINE_POLYGON = [
@@ -1013,38 +1875,6 @@ const SLO_COASTLINE_POLYGON = [
 ];
 
 
-// Mathematical Geodesic Helpers
-function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
-    const R = 6371000; // meters
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-}
-
-function calculateBearing(lat1, lon1, lat2, lon2) {
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
-    const y = Math.sin(Δλ) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-    const θ = Math.atan2(y, x);
-    return (θ * 180 / Math.PI + 360) % 360;
-}
-
-function formatDuration(sec) {
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = sec % 60;
-    if (h > 0) {
-        return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-    }
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
 // Precompute 100m dense interpolation along the 200m chain (~280 points)
 function generateDenseCoastalChain(guideNodes, maxSpacingMeters) {
     const dense = [];
@@ -1107,7 +1937,7 @@ function hasLineOfSight(lat1, lon1, lat2, lon2) {
     return true;
 }
 
-// Zagotovi, da točka ni na suhem (če je uporabnik kliknil na kopno/obalo, jo projicira v vodo)
+// Zagotovi, da to�ka ni na suhem (�e je uporabnik kliknil na kopno/obalo, jo projicira v vodo)
 function ensureWaterPoint(lat, lon) {
     if (!isPointInPolygon(lat, lon, SLO_COASTLINE_POLYGON)) return [lat, lon];
     const mPerLat = 111139.0;
@@ -1125,7 +1955,7 @@ function ensureWaterPoint(lat, lon) {
     return [lat, lon];
 }
 
-// Izračun varne pomorske poti z uporabo 103-točkovne 200m razmejitvene linije
+// Izra�un varne pomorske poti z uporabo 103-to�kovne 200m razmejitvene linije
 function getSafeMarineSegment(lat1, lon1, lat2, lon2, useRules) {
     if (!useRules) {
         return [[lat1, lon1], [lat2, lon2]];
@@ -1134,14 +1964,14 @@ function getSafeMarineSegment(lat1, lon1, lat2, lon2, useRules) {
     const pStart = ensureWaterPoint(lat1, lon1);
     const pDest = ensureWaterPoint(lat2, lon2);
 
-    // Če med točkama obstaja neovirana direktna linija po odprtem morju, pluje direktno
+    // �e med to�kama obstaja neovirana direktna linija po odprtem morju, pluje direktno
     if (hasLineOfSight(pStart[0], pStart[1], pDest[0], pDest[1])) {
         return [pStart, pDest];
     }
 
     const nodes = SLO_COAST_200M_GUIDE_NODES;
 
-    // 1. Poišči najbližjo vidno točko na 200m liniji iz začetne lokacije (najkrajša pot do meje)
+    // 1. Poi��i najbli�jo vidno to�ko na 200m liniji iz za�etne lokacije (najkraj�a pot do meje)
     let idxA = -1;
     let minDA = Infinity;
     for (let i = 0; i < nodes.length; i++) {
@@ -1160,7 +1990,7 @@ function getSafeMarineSegment(lat1, lon1, lat2, lon2, useRules) {
         }
     }
 
-    // 2. Poišči najbližjo vidno točko na 200m liniji do ciljne lokacije (izstop z meje)
+    // 2. Poi��i najbli�jo vidno to�ko na 200m liniji do ciljne lokacije (izstop z meje)
     let idxB = -1;
     let minDB = Infinity;
     for (let i = 0; i < nodes.length; i++) {
@@ -1179,7 +2009,7 @@ function getSafeMarineSegment(lat1, lon1, lat2, lon2, useRules) {
         }
     }
 
-    // Podveriga točk od vstopa (idxA) do izstopa (idxB)
+    // Podveriga to�k od vstopa (idxA) do izstopa (idxB)
     const subChain = [];
     const step = (idxA <= idxB) ? 1 : -1;
     for (let i = idxA; i !== idxB + step; i += step) {
@@ -1192,10 +2022,10 @@ function getSafeMarineSegment(lat1, lon1, lat2, lon2, useRules) {
     let currIdx = 0;
 
     // Vodenje po 200m liniji:
-    // - V konveksnih delih (okoli rtov) je pogled čez kopno blokiran -> sledi točkam okoli rta
-    // - V konkavnih delih (čez zalive) je pogled odprt -> pluje direktno čez zaliv do najbolj oddaljene vidne točke
+    // - V konveksnih delih (okoli rtov) je pogled �ez kopno blokiran -> sledi to�kam okoli rta
+    // - V konkavnih delih (�ez zalive) je pogled odprt -> pluje direktno �ez zaliv do najbolj oddaljene vidne to�ke
     while (currIdx < subChain.length - 1) {
-        // Če je cilj že neposredno viden z odprtega morja, zapusti mejo in pluj naravnost na cilj!
+        // �e je cilj �e neposredno viden z odprtega morja, zapusti mejo in pluj naravnost na cilj!
         if (hasLineOfSight(currPos[0], currPos[1], pDest[0], pDest[1])) {
             break;
         }
@@ -1271,36 +2101,11 @@ function setActiveMainTab(tabName) {
 }
 window.setActiveMainTab = setActiveMainTab;
 
-// Format decimal coordinates to Nautical DMM format: DD° MM.mmm' N/S & DDD° MM.mmm' E/W
-function formatNauticalCoord(degDec, isLat) {
-    if (degDec === null || degDec === undefined || isNaN(degDec)) {
-        return isLat ? "--° --.---' N" : "---° --.---' E";
-    }
-    const absVal = Math.abs(degDec);
-    const degrees = Math.floor(absVal);
-    const minutes = (absVal - degrees) * 60;
-    const hemisphere = isLat ? (degDec >= 0 ? 'N' : 'S') : (degDec >= 0 ? 'E' : 'W');
-    const degStr = isLat ? String(degrees).padStart(2, '0') : String(degrees).padStart(3, '0');
-    const minStr = minutes.toFixed(3).padStart(6, '0');
-    return `${degStr}° ${minStr}' ${hemisphere}`;
-}
+// Format decimal coordinates to Nautical DMM format: DD� MM.mmm' N/S & DDD� MM.mmm' E/W
 
 // Calculate shortest angular difference between two angles in degrees (-180 to +180)
-function getShortestAngleDelta(fromAngle, toAngle) {
-    let diff = (toAngle - fromAngle) % 360;
-    if (diff > 180) diff -= 360;
-    if (diff < -180) diff += 360;
-    return diff;
-}
 
 // Convert degrees to 16-point cardinal compass text
-function getHeadingCardinal(deg) {
-    if (deg === null || deg === undefined || isNaN(deg)) return "--";
-    const cardinals = ["S", "SSV", "SV", "VSV", "V", "VJV", "JV", "JJV", "J", "JJZ", "JZ", "ZJZ", "Z", "ZSZ", "SZ", "SSZ"];
-    const normalized = (deg % 360 + 360) % 360;
-    const idx = Math.round(normalized / 22.5) % 16;
-    return cardinals[idx];
-}
 
 // Device Orientation Tracker with Magnetic Declination Correction
 function handleDeviceOrientation(event) {
@@ -1345,7 +2150,7 @@ function updateCompassOrientation() {
         const headingCardEl = document.getElementById('nav-heading-cardinal');
         if (lastGpsSpeedKnots < 0.4 && headingDegEl) {
             if (phoneMagneticHeading !== null && !isNaN(phoneMagneticHeading)) {
-                headingDegEl.textContent = `${Math.round(phoneMagneticHeading)}°`;
+                headingDegEl.textContent = `${Math.round(phoneMagneticHeading)}�`;
                 headingDegEl.classList.remove('status-text');
                 if (headingCardEl) {
                     headingCardEl.textContent = getHeadingCardinal(phoneMagneticHeading);
@@ -1413,7 +2218,7 @@ function stopOrientationTracking() {
 // Share current nautical coordinates via native Web Share API
 function shareCurrentLocation() {
     if (!lastGpsCoords) {
-        alert('GPS lokacija še ni pridobljena. Preverite, da je GPS vklopljen.');
+        alert('GPS lokacija �e ni pridobljena. Preverite, da je GPS vklopljen.');
         return;
     }
     const lat = lastGpsCoords.latitude;
@@ -1421,7 +2226,7 @@ function shareCurrentLocation() {
     const dmmLat = formatNauticalCoord(lat, true);
     const dmmLon = formatNauticalCoord(lon, false);
     const mapsUrl = `https://maps.google.com/?q=${lat.toFixed(6)},${lon.toFixed(6)}`;
-    const shareText = `Moja trenutna lokacija na morju:\n${dmmLat}, ${dmmLon}\n(${lat.toFixed(5)}°, ${lon.toFixed(5)}°)\n${mapsUrl}`;
+    const shareText = `Moja trenutna lokacija na morju:\n${dmmLat}, ${dmmLon}\n(${lat.toFixed(5)}�, ${lon.toFixed(5)}�)\n${mapsUrl}`;
 
     if (navigator.share) {
         navigator.share({
@@ -1430,18 +2235,18 @@ function shareCurrentLocation() {
             url: mapsUrl
         }).catch(err => {
             if (err.name !== 'AbortError') {
-                copyTextToClipboard(shareText);
+                copyTextToClŠčipboard(shareText);
             }
         });
     } else {
-        copyTextToClipboard(shareText);
+        copyTextToClŠčipboard(shareText);
     }
 }
 
-function copyTextToClipboard(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(() => {
-            alert('Lokacija s koordinatami in povezavo je kopirana v odložišče!');
+function copyTextToClŠčipboard(text) {
+    if (navigator.clŠčipboard && navigator.clŠčipboard.writeText) {
+        navigator.clŠčipboard.writeText(text).then(() => {
+            alert('Lokacija s koordinatami in povezavo je kopirana v odlo�i��e!');
         }).catch(() => {
             prompt('Kopirajte koordinate:', text);
         });
@@ -1451,373 +2256,181 @@ function copyTextToClipboard(text) {
 }
 window.shareCurrentLocation = shareCurrentLocation;
 
-// Official Nautical Chart Feature Datasets (ENC / IHO S-52 Standard)
-// 1. Unobtrusive Depth Soundings (Drobne, nemoteče poševne številke globin po uradnih hidrografskih kartah)
-const NAUTICAL_SOUNDINGS = [
-    // Koprski zaliv & Debeli rtič
-    { lat: 45.5925, lon: 13.6980, depth: '1.6', name: 'Greben Debeli rtič' },
-    { lat: 45.5960, lon: 13.7080, depth: '3.8', name: 'Debeli rtič V' },
-    { lat: 45.5880, lon: 13.7050, depth: '4.5', name: 'Valdoltra pličina' },
-    { lat: 45.5820, lon: 13.7140, depth: '6.2', name: 'Valdoltra zaliv' },
-    { lat: 45.5740, lon: 13.7250, depth: '7.5', name: 'Ankaran zaliv' },
-    { lat: 45.5650, lon: 13.7200, depth: '12.0', name: 'Luka Koper zunanji bazen' },
-    { lat: 45.5560, lon: 13.7220, depth: '14.5', name: 'Luka Koper plovni kanal' },
-    { lat: 45.5490, lon: 13.7170, depth: '4.2', name: 'Koper Mandrač vhod' },
-    { lat: 45.5485, lon: 13.7050, depth: '2.4', name: 'Žusterna' },
-    { lat: 45.5550, lon: 13.6950, depth: '9.8', name: 'Koprski zaliv - Rex' },
-    { lat: 45.5680, lon: 13.6800, depth: '18.5', name: 'Koprski zaliv sredina' },
-    { lat: 45.5800, lon: 13.6600, depth: '20.2', name: 'Koprski zaliv zahod' },
-
-    // Izola & Rt Ronek
-    { lat: 45.5440, lon: 13.6760, depth: '6.5', name: 'Viližan' },
-    { lat: 45.5460, lon: 13.6520, depth: '5.2', name: 'Izola severni greben' },
-    { lat: 45.5420, lon: 13.6560, depth: '3.8', name: 'Izola marina vhod' },
-    { lat: 45.5390, lon: 13.6420, depth: '3.1', name: 'Simonov zaliv' },
-    { lat: 45.5410, lon: 13.6260, depth: '8.5', name: 'Bele skale' },
-    { lat: 45.5430, lon: 13.6050, depth: '14.2', name: 'Rt Ronek klif' },
-    { lat: 45.5490, lon: 13.6300, depth: '16.5', name: 'Pred Izolo odprto' },
-    { lat: 45.5550, lon: 13.6000, depth: '21.0', name: 'Severno od Roneka' },
-
-    // Strunjanski zaliv & Fiesa
-    { lat: 45.5370, lon: 13.6000, depth: '6.8', name: 'Mesečev zaliv' },
-    { lat: 45.5340, lon: 13.5960, depth: '2.8', name: 'Strunjan soline' },
-    { lat: 45.5360, lon: 13.5850, depth: '11.2', name: 'Strunjanski zaliv sredina' },
-    { lat: 45.5290, lon: 13.5820, depth: '5.0', name: 'Pacug' },
-    { lat: 45.5300, lon: 13.5720, depth: '6.2', name: 'Fiesa zaliv' },
-    { lat: 45.5380, lon: 13.5650, depth: '18.0', name: 'Severno od Fiese' },
-
-    // Piran & Bernardin
-    { lat: 45.5295, lon: 13.5615, depth: '2.1', name: 'Punta Piran greben' },
-    { lat: 45.5320, lon: 13.5590, depth: '7.5', name: 'Punta Piran bojna linija' },
-    { lat: 45.5270, lon: 13.5660, depth: '4.8', name: 'Piran mandrač' },
-    { lat: 45.5220, lon: 13.5620, depth: '9.5', name: 'Jugozahodno od Pirana' },
-    { lat: 45.5160, lon: 13.5680, depth: '5.5', name: 'Bernardin pomol' },
-    { lat: 45.5140, lon: 13.5750, depth: '6.8', name: 'Portoroški zaliv sever' },
-
-    // Piranski zaliv, Portorož & Seča
-    { lat: 45.5130, lon: 13.5820, depth: '2.6', name: 'Portorož centralna plaža' },
-    { lat: 45.5040, lon: 13.5900, depth: '3.5', name: 'Marina Portorož vhod' },
-    { lat: 45.4975, lon: 13.5840, depth: '2.2', name: 'Rt Seča greben' },
-    { lat: 45.4880, lon: 13.5900, depth: '1.8', name: 'Krajinski park Sečovlje vhod' },
-    { lat: 45.4950, lon: 13.5780, depth: '7.2', name: 'Piranski zaliv jug' },
-    { lat: 45.5050, lon: 13.5650, depth: '12.4', name: 'Piranski zaliv sredina' },
-    { lat: 45.5120, lon: 13.5480, depth: '16.8', name: 'Piranski zaliv zahod' },
-    { lat: 45.4900, lon: 13.5600, depth: '14.5', name: 'Pred Savudrijo / meja' },
-
-    // Odprto morje / Globoke vode (18-32m)
-    { lat: 45.6050, lon: 13.6600, depth: '22.5', name: 'Tržaški zaliv - sever' },
-    { lat: 45.5800, lon: 13.6200, depth: '24.8', name: 'Odprto morje KP-PI' },
-    { lat: 45.5600, lon: 13.5600, depth: '26.5', name: 'Odprto morje pred Ronekom' },
-    { lat: 45.5450, lon: 13.5350, depth: '28.2', name: 'Odprto morje pred Piranom' },
-    { lat: 45.5250, lon: 13.5200, depth: '31.5', name: 'Odprto morje globoko' },
-    { lat: 45.5000, lon: 13.5100, depth: '32.0', name: 'Odprto morje JZ' }
+// Verified Local Vector Bathymetry Dataset (100% in Seča, 0 Coastline Intersections)
+const SLO_BATHYMETRY_ISOBATHS = [
+    {
+        depth: 2,
+        color: '#38bdf8',
+        weight: 1.2,
+        dashArray: '4, 4',
+        coords: [
+            [45.5985, 13.7170], [45.5960, 13.7080], [45.5940, 13.7000], [45.5920, 13.6950], 
+            [45.5890, 13.6960], [45.5860, 13.7040], [45.5840, 13.7120], [45.5810, 13.7220], 
+            [45.5750, 13.7280], [45.5650, 13.7260], [45.5560, 13.7200], [45.5505, 13.7150], 
+            [45.5480, 13.7100], [45.5495, 13.7020], [45.5485, 13.6900], [45.5465, 13.6760], 
+            [45.5455, 13.6660], [45.5465, 13.6590], [45.5475, 13.6530], [45.5465, 13.6490], 
+            [45.5435, 13.6460], [45.5390, 13.6430], [45.5395, 13.6320], [45.5410, 13.6190], 
+            [45.5425, 13.6080], [45.5415, 13.5990], [45.5380, 13.5960], [45.5335, 13.5950], 
+            [45.5290, 13.5830], [45.5295, 13.5730], [45.5315, 13.5650], [45.5305, 13.5620], 
+            [45.5285, 13.5605], [45.5260, 13.5615], [45.5235, 13.5650], [45.5190, 13.5670], 
+            [45.5150, 13.5675], [45.5125, 13.5710], [45.5115, 13.5790], [45.5110, 13.5860], 
+            [45.5080, 13.5910], [45.5030, 13.5870], [45.4985, 13.5840], [45.4960, 13.5835], 
+            [45.4880, 13.5900]
+        ]
+    },
+    {
+        depth: 5,
+        color: '#00f0ff',
+        weight: 1.3,
+        dashArray: null,
+        coords: [
+            [45.6010, 13.7140], [45.5975, 13.7060], [45.5950, 13.6960], [45.5930, 13.6900], 
+            [45.5880, 13.6920], [45.5840, 13.7020], [45.5810, 13.7130], [45.5750, 13.7220], 
+            [45.5600, 13.7190], [45.5520, 13.7110], [45.5490, 13.6960], [45.5470, 13.6800], 
+            [45.5460, 13.6640], [45.5485, 13.6520], [45.5475, 13.6460], [45.5420, 13.6420], 
+            [45.5410, 13.6260], [45.5435, 13.6100], [45.5430, 13.5970], [45.5390, 13.5930], 
+            [45.5340, 13.5920], [45.5295, 13.5800], [45.5300, 13.5700], [45.5330, 13.5630], 
+            [45.5315, 13.5590], [45.5280, 13.5580], [45.5250, 13.5600], [45.5200, 13.5640], 
+            [45.5140, 13.5650], [45.5115, 13.5690], [45.5095, 13.5780], [45.5090, 13.5860], 
+            [45.5065, 13.5890], [45.5010, 13.5840], [45.4950, 13.5810], [45.4850, 13.5880]
+        ]
+    },
+    {
+        depth: 10,
+        color: '#0ea5e9',
+        weight: 1.4,
+        dashArray: null,
+        coords: [
+            [45.6030, 13.7150], [45.5980, 13.6950], [45.5940, 13.6870], [45.5860, 13.6890], 
+            [45.5780, 13.7080], [45.5680, 13.7160], [45.5560, 13.7110], [45.5500, 13.6950], 
+            [45.5480, 13.6700], [45.5495, 13.6500], [45.5460, 13.6380], [45.5430, 13.6200], 
+            [45.5450, 13.6020], [45.5410, 13.5900], [45.5340, 13.5820], [45.5330, 13.5650], 
+            [45.5280, 13.5550], [45.5180, 13.5580], [45.5110, 13.5630], [45.5080, 13.5740], 
+            [45.4980, 13.5800], [45.4850, 13.5850]
+        ]
+    },
+    {
+        depth: 15,
+        color: '#0284c7',
+        weight: 1.5,
+        dashArray: null,
+        coords: [
+            [45.6060, 13.7050], [45.5990, 13.6780], [45.5840, 13.6760], [45.5720, 13.6950], 
+            [45.5600, 13.7020], [45.5530, 13.6850], [45.5500, 13.6550], [45.5505, 13.6380], 
+            [45.5465, 13.6100], [45.5470, 13.5920], [45.5410, 13.5780], [45.5350, 13.5600], 
+            [45.5250, 13.5500], [45.5140, 13.5520], [45.5040, 13.5650], [45.4850, 13.5750]
+        ]
+    },
+    {
+        depth: 20,
+        color: '#2563eb',
+        weight: 1.6,
+        dashArray: null,
+        coords: [
+            [45.6120, 13.6950], [45.6020, 13.6650], [45.5850, 13.6550], [45.5700, 13.6700], 
+            [45.5580, 13.6550], [45.5530, 13.6200], [45.5500, 13.5850], [45.5440, 13.5600], 
+            [45.5390, 13.5450], [45.5240, 13.5420], [45.5100, 13.5450], [45.4950, 13.5550]
+        ]
+    },
+    {
+        depth: 25,
+        color: '#4338ca',
+        weight: 1.6,
+        dashArray: null,
+        coords: [
+            [45.6180, 13.6800], [45.6050, 13.6450], [45.5880, 13.6300], [45.5720, 13.6350], 
+            [45.5580, 13.6000], [45.5530, 13.5650], [45.5460, 13.5350], [45.5260, 13.5300], 
+            [45.5010, 13.5350]
+        ]
+    },
+    {
+        depth: 30,
+        color: '#6366f1',
+        weight: 1.8,
+        dashArray: null,
+        coords: [
+            [45.6250, 13.6600], [45.6100, 13.6200], [45.5900, 13.6000], [45.5700, 13.5800], 
+            [45.5500, 13.5400], [45.5300, 13.5100], [45.5000, 13.5100], [45.4850, 13.5200]
+        ]
+    },
 ];
 
-// 2. Dangerous Obstructions, Shoals & Reefs (Nevarne ovire, čeri in plitvine s črtkano mejo)
-const NAUTICAL_HAZARDS = [
-    {
-        name: 'Greben Debeli rtič',
-        type: 'Plitvina & skalni greben',
-        badge: '< 1.5 m',
-        center: [45.5925, 13.6965],
-        coords: [
-            [45.5940, 13.6950], [45.5920, 13.6930],
-            [45.5890, 13.6960], [45.5910, 13.7010],
-            [45.5940, 13.6950]
-        ],
-        desc: 'Nevaren plitev skalnati greben pred Debelim rtičem. Globina manj kot 1.5 m.'
-    },
-    {
-        name: 'Greben Punta Piran',
-        type: 'Podvodni greben & čeri',
-        badge: '< 2.0 m',
-        center: [45.5295, 13.5605],
-        coords: [
-            [45.5310, 13.5610], [45.5290, 13.5585],
-            [45.5275, 13.5605], [45.5285, 13.5630],
-            [45.5310, 13.5610]
-        ],
-        desc: 'Podvodne čeri in plitvina, ki se razteza z rta Punta Piran. Prepovedana plovba v neposredni bližini rta.'
-    },
-    {
-        name: 'Čeri pod klifom Rt Ronek',
-        type: 'Podvodne skale & klif',
-        badge: 'Čeri',
-        center: [45.5425, 13.6070],
-        coords: [
-            [45.5440, 13.6120], [45.5425, 13.6020],
-            [45.5395, 13.5990], [45.5410, 13.6140],
-            [45.5440, 13.6120]
-        ],
-        desc: 'Skalne podvodne čeri in krušenje pod flišnim klifom Ronek v Krajinskem parku Strunjan.'
-    },
-    {
-        name: 'Plitvina Rt Seča',
-        type: 'Plitvina & solinski nasip',
-        badge: '< 1.2 m',
-        center: [45.4960, 13.5825],
-        coords: [
-            [45.4985, 13.5830], [45.4960, 13.5790],
-            [45.4920, 13.5820], [45.4950, 13.5860],
-            [45.4985, 13.5830]
-        ],
-        desc: 'Izrazita blatna plitvina na vhodu v kanal sv. Jerneja in Sečoveljske soline.'
-    }
+const SLO_BATHYMETRY_SOUNDINGS = [
+    { label: '1.6m', lat: 45.5910, lon: 13.6980, name: 'Debeli rti? greben' },
+    { label: '4.5m', lat: 45.5830, lon: 13.7140, name: 'Valdoltra' },
+    { label: '7.2m', lat: 45.5720, lon: 13.7250, name: 'Ankaran zaliv' },
+    { label: '14.5m', lat: 45.5560, lon: 13.7220, name: 'Luka Koper plovni kanal' },
+    { label: '4.2m', lat: 45.5490, lon: 13.7170, name: 'Koper Mandra?' },
+    { label: '2.4m', lat: 45.5490, lon: 13.7050, name: '?usterna' },
+    { label: '6.5m', lat: 45.5440, lon: 13.6760, name: 'Vili?an' },
+    { label: '5.2m', lat: 45.5460, lon: 13.6520, name: 'Izola severni greben' },
+    { label: '4.0m', lat: 45.5440, lon: 13.6560, name: 'Izola marina vstop' },
+    { label: '3.1m', lat: 45.5380, lon: 13.6420, name: 'Simonov zaliv' },
+    { label: '8.5m', lat: 45.5400, lon: 13.6260, name: 'Bele skale' },
+    { label: '14.0m', lat: 45.5420, lon: 13.6050, name: 'Rt Ronek klif' },
+    { label: '6.8m', lat: 45.5370, lon: 13.6000, name: 'Mese?ev zaliv' },
+    { label: '2.8m', lat: 45.5340, lon: 13.5960, name: 'Strunjan soline vhod' },
+    { label: '5.0m', lat: 45.5290, lon: 13.5820, name: 'Pacug' },
+    { label: '6.2m', lat: 45.5295, lon: 13.5720, name: 'Fiesa' },
+    { label: '2.1m', lat: 45.5290, lon: 13.5620, name: 'Punta Piran greben' },
+    { label: '6.5m', lat: 45.5315, lon: 13.5600, name: 'Punta Piran bojna linija' },
+    { label: '4.8m', lat: 45.5260, lon: 13.5660, name: 'Piran mandra? vhod' },
+    { label: '5.5m', lat: 45.5160, lon: 13.5680, name: 'Bernardin pomol' },
+    { label: '2.6m', lat: 45.5130, lon: 13.5820, name: 'Portoro? centralna pla?a' },
+    { label: '3.5m', lat: 45.5040, lon: 13.5900, name: 'Marina Portoro? vhod' },
+    { label: '2.2m', lat: 45.4975, lon: 13.5840, name: 'Rt Se?a greben' },
+    { label: '16.5m', lat: 45.5100, lon: 13.5450, name: 'Piranski zaliv sredina' },
+    { label: '19.2m', lat: 45.5650, lon: 13.6700, name: 'Koprski zaliv sredina' },
+    { label: '26.8m', lat: 45.5450, lon: 13.5400, name: 'Odprto morje pred Piranom' }
 ];
 
-// 3. Official Shipwrecks (Potopljene ladje in razbitine)
-const NAUTICAL_WRECKS = [
-    {
-        lat: 45.5489,
-        lon: 13.6920,
-        name: 'Razbitina SS Rex',
-        type: 'Čezoceanska potopljena ladja (1944)',
-        depth: '8 – 11 m',
-        desc: 'Največja italijanska čezoceanska potniška ladja Rex, potopljena 8. septembra 1944. Podvodno arheološko najdišče in nevarnost za sidranje.'
-    },
-    {
-        lat: 45.5312,
-        lon: 13.5580,
-        name: 'Razbitina tovorne ladje pred Piranom',
-        type: 'Potopljena razbitina',
-        depth: '12 – 14 m',
-        desc: 'Potopljeni ostanki tovorne ladje severozahodno od Punte Piran. Prepovedano sidranje.'
-    },
-    {
-        lat: 45.5185,
-        lon: 13.5615,
-        name: 'Potopljena razbitina v Piranskem zalivu',
-        type: 'Podvodna ovira',
-        depth: '10 m',
-        desc: 'Potopljena lesena barkasa / ovira na morskem dnu.'
-    }
-];
-
-// 4. Submarine Pipelines and Cables (Podmorski izpusti in kabli z uradnimi vijoličnimi črtkanimi linijami)
-const NAUTICAL_PIPELINES_CABLES = [
-    {
-        name: 'Podmorski izpust CKČN Piran (3.5 km)',
-        type: 'Podvodni kanalizacijski cevovod',
-        color: '#c026d3', // Official nautical magenta
-        dashArray: '8, 6',
-        coords: [
-            [45.5285, 13.5650],
-            [45.5340, 13.5530],
-            [45.5410, 13.5410],
-            [45.5460, 13.5320]
-        ],
-        desc: 'Glavni podmorski izpust Centralne čistilne naprave Piran dolžine 3,5 km. Na koncu sta nameščena globokomorska difuzorja. Prepovedano sidranje in ribolov z vlečnimi mrežami.'
-    },
-    {
-        name: 'Podmorski izpust CČN Koper',
-        type: 'Podvodni izpust čistilne naprave',
-        color: '#c026d3',
-        dashArray: '8, 6',
-        coords: [
-            [45.5495, 13.7080],
-            [45.5580, 13.6950],
-            [45.5660, 13.6820]
-        ],
-        desc: 'Podmorski izpust komunalne čistilne naprave Koper v Koprski zaliv. Prepovedano sidranje.'
-    },
-    {
-        name: 'Podvodni komunikacijski kabel Piranski zaliv',
-        type: 'Podvodni elektro/komunikacijski kabel',
-        color: '#9333ea',
-        dashArray: '4, 6',
-        coords: [
-            [45.5150, 13.5680],
-            [45.5060, 13.5550],
-            [45.4980, 13.5420]
-        ],
-        desc: 'Podvodni energetski in komunikacijski kabel na morskem dnu.'
-    }
-];
-
-// 5. Mariculture / Shellfish & Fish Farming Restricted Zones
-const NAUTICAL_MARICULTURE = [
-    {
-        name: 'Školjčišče Debeli rtič (sv. Jernej)',
-        type: 'Marikultura - školjčišče',
-        center: [45.5870, 13.7080],
-        coords: [
-            [45.5890, 13.7060], [45.5850, 13.7100],
-            [45.5840, 13.7060], [45.5880, 13.7020],
-            [45.5890, 13.7060]
-        ],
-        desc: 'Zavarovano območje gojenja školjk. Označeno z rumenimi specialnimi navigacijskimi bojami. Prepovedana plovba in sidranje med vrvmi.'
-    },
-    {
-        name: 'Školjčišče Strunjan',
-        type: 'Marikultura - školjčišče',
-        center: [45.5340, 13.5980],
-        coords: [
-            [45.5355, 13.5960], [45.5325, 13.6000],
-            [45.5315, 13.5970], [45.5345, 13.5930],
-            [45.5355, 13.5960]
-        ],
-        desc: 'Gojišče školjk v Strunjanskem zalivu. Prepovedano sidranje.'
-    },
-    {
-        name: 'Ribogojnica & školjčišče Fonda (Seča)',
-        type: 'Marikultura - ribogojnica in školjčišče',
-        center: [45.4930, 13.5800],
-        coords: [
-            [45.4955, 13.5780], [45.4905, 13.5820],
-            [45.4895, 13.5780], [45.4945, 13.5740],
-            [45.4955, 13.5780]
-        ],
-        desc: 'Morska ribogojnica piranskega brancina in školjčišče Fonda. Zavarovano območje z rumenimi navigacijskimi bojami.'
-    }
-];
-
-function buildNauticalChartLayer() {
+function buildBathymetryLayer() {
     if (depthVectorLayerGroup) return depthVectorLayerGroup;
     depthVectorLayerGroup = L.layerGroup([]);
 
-    // 1. Unobtrusive Depth Soundings (Crisp, italicized numbers directly on water)
-    NAUTICAL_SOUNDINGS.forEach(snd => {
+    // 1. Smooth, crisp isobath contour lines
+    SLO_BATHYMETRY_ISOBATHS.forEach(iso => {
+        const poly = L.polyline(iso.coords, {
+            color: iso.color,
+            weight: iso.weight,
+            dashArray: iso.dashArray,
+            opacity: 0.85
+        });
+        poly.bindPopup(`<b>Izobata ${iso.depth} m</b><br>Globinska �rta slovenskega morja (${iso.depth} m)`);
+        depthVectorLayerGroup.addLayer(poly);
+
+        // Add discrete depth label badges along the isobath line
+        if (iso.coords && iso.coords.length > 5) {
+            const mid1 = iso.coords[Math.floor(iso.coords.length * 0.35)];
+            const mid2 = iso.coords[Math.floor(iso.coords.length * 0.75)];
+            [mid1, mid2].forEach(pt => {
+                const lblIcon = L.divIcon({
+                    className: 'bathy-sounding-divicon',
+                    html: `<div class="bathy-isobath-label">${iso.depth}m</div>`,
+                    iconSize: [28, 14],
+                    iconAnchor: [14, 7]
+                });
+                const lblMarker = L.marker(pt, { icon: lblIcon, interactive: false });
+                depthVectorLayerGroup.addLayer(lblMarker);
+            });
+        }
+    });
+
+    // 2. Sounding Badges with depth in meters
+    SLO_BATHYMETRY_SOUNDINGS.forEach(snd => {
         const icon = L.divIcon({
-            className: 'nautical-sounding-divicon',
-            html: `<div class="nautical-sounding-num">${snd.depth}</div>`,
-            iconSize: [28, 16],
-            iconAnchor: [14, 8]
+            className: 'bathy-sounding-divicon',
+            html: `<div class="bathy-sounding-badge">${snd.label}</div>`,
+            iconSize: [38, 18],
+            iconAnchor: [19, 9]
         });
         const marker = L.marker([snd.lat, snd.lon], { icon: icon });
-        marker.bindPopup(`<b>Globina: ${snd.depth} m</b><br><small>${snd.name}</small>`);
+        marker.bindPopup(`<b>${snd.name}</b><br>Globina morja: <b>${snd.label}</b>`);
         depthVectorLayerGroup.addLayer(marker);
-    });
-
-    // 2. Dangerous Obstructions, Shoals & Reefs (Dashed perimeters with hazard badges)
-    NAUTICAL_HAZARDS.forEach(haz => {
-        const poly = L.polygon(haz.coords, {
-            color: '#ef4444',
-            weight: 2,
-            dashArray: '5, 5',
-            fillColor: '#ef4444',
-            fillOpacity: 0.12
-        });
-        poly.bindPopup(`<b><i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${haz.name}</b><br>Tip: <b>${haz.type}</b><br>${haz.desc}`);
-        depthVectorLayerGroup.addLayer(poly);
-
-        // Center danger badge
-        const hazIcon = L.divIcon({
-            className: 'nautical-hazard-divicon',
-            html: `<div class="nautical-hazard-badge">${haz.badge}</div>`,
-            iconSize: [52, 18],
-            iconAnchor: [26, 9]
-        });
-        const hazMarker = L.marker(haz.center, { icon: hazIcon });
-        hazMarker.bindPopup(`<b>${haz.name}</b><br>${haz.desc}`);
-        depthVectorLayerGroup.addLayer(hazMarker);
-    });
-
-    // 3. Official Shipwrecks (Razbitine)
-    NAUTICAL_WRECKS.forEach(wrk => {
-        const wreckIconHtml = `
-            <div class="nautical-wreck-marker" title="${wrk.name}">
-                <svg viewBox="0 0 32 32" width="26" height="26">
-                    <circle cx="16" cy="16" r="14" fill="rgba(15, 23, 42, 0.75)" stroke="#ef4444" stroke-width="2" stroke-dasharray="3, 3"/>
-                    <line x1="8" y1="16" x2="24" y2="16" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
-                    <line x1="11" y1="12" x2="11" y2="20" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
-                    <line x1="16" y1="10" x2="16" y2="22" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
-                    <line x1="21" y1="12" x2="21" y2="20" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
-                    <line x1="13" y1="9" x2="19" y2="9" stroke="#ef4444" stroke-width="1.8"/>
-                </svg>
-            </div>
-        `;
-        const wrkIcon = L.divIcon({
-            className: 'nautical-wreck-divicon',
-            html: wreckIconHtml,
-            iconSize: [26, 26],
-            iconAnchor: [13, 13]
-        });
-        const m = L.marker([wrk.lat, wrk.lon], { icon: wrkIcon });
-        m.bindPopup(`
-            <div style="font-size:0.85rem;">
-                <b style="color:#ef4444;"><i class="fa-solid fa-anchor"></i> ${wrk.name}</b><br>
-                <span>Tip: <b>${wrk.type}</b></span><br>
-                <span>Globina: <b>${wrk.depth}</b></span><br>
-                <p style="margin:4px 0 0 0; font-size:0.75rem; color:#475569;">${wrk.desc}</p>
-            </div>
-        `);
-        depthVectorLayerGroup.addLayer(m);
-    });
-
-    // 4. Submarine Pipelines & Cables (Magenta dashed lines)
-    NAUTICAL_PIPELINES_CABLES.forEach(pipe => {
-        const line = L.polyline(pipe.coords, {
-            color: pipe.color,
-            weight: 2.5,
-            dashArray: pipe.dashArray,
-            opacity: 0.95
-        });
-        line.bindPopup(`
-            <div style="font-size:0.85rem;">
-                <b style="color:${pipe.color};"><i class="fa-solid fa-bolt"></i> ${pipe.name}</b><br>
-                <span>Tip: <b>${pipe.type}</b></span><br>
-                <p style="margin:4px 0 0 0; font-size:0.75rem; color:#475569;">${pipe.desc}</p>
-            </div>
-        `);
-        depthVectorLayerGroup.addLayer(line);
-
-        // Diffuser / End Point Marker
-        const endPt = pipe.coords[pipe.coords.length - 1];
-        const endIcon = L.divIcon({
-            className: 'nautical-pipe-end-divicon',
-            html: `<div style="width:10px; height:10px; border-radius:50%; background:${pipe.color}; border:2px solid #ffffff; box-shadow:0 0 6px ${pipe.color};"></div>`,
-            iconSize: [10, 10],
-            iconAnchor: [5, 5]
-        });
-        const endMarker = L.marker(endPt, { icon: endIcon });
-        endMarker.bindPopup(`<b>Konec izpusta / difuzor</b><br>${pipe.name}`);
-        depthVectorLayerGroup.addLayer(endMarker);
-    });
-
-    // 5. Mariculture / Shellfish & Fish Farming Zones
-    NAUTICAL_MARICULTURE.forEach(mari => {
-        const poly = L.polygon(mari.coords, {
-            color: '#f59e0b',
-            weight: 2,
-            dashArray: '6, 6',
-            fillColor: '#f59e0b',
-            fillOpacity: 0.15
-        });
-        poly.bindPopup(`<b><i class="fa-solid fa-fish" style="color:#f59e0b;"></i> ${mari.name}</b><br>${mari.desc}`);
-        depthVectorLayerGroup.addLayer(poly);
-
-        // Yellow Special Buoy Marker
-        const buoyIcon = L.divIcon({
-            className: 'nautical-buoy-divicon',
-            html: `<div style="display:flex; align-items:center; gap:3px; background:rgba(245,158,11,0.9); color:#000000; font-weight:800; font-size:9px; padding:1px 5px; border-radius:4px; border:1px solid #ffffff; box-shadow:0 2px 5px rgba(0,0,0,0.4);"><i class="fa-solid fa-xmark"></i> MARIKULTURA</div>`,
-            iconSize: [85, 18],
-            iconAnchor: [42, 9]
-        });
-        const buoyMarker = L.marker(mari.center, { icon: buoyIcon });
-        buoyMarker.bindPopup(`<b>${mari.name}</b><br>${mari.desc}`);
-        depthVectorLayerGroup.addLayer(buoyMarker);
     });
 
     return depthVectorLayerGroup;
 }
-
-// Toggle Nautical Chart Layer (Soundings, Wrecks, Pipelines, Hazards)
-function toggleNauticalChartLayer() {
-    if (!navMap) initNavMap();
-    showDepthContours = !showDepthContours;
-    const btn = document.getElementById('pill-layer-depth');
-    if (btn) btn.classList.toggle('active', showDepthContours);
-
-    const chartLayer = buildNauticalChartLayer();
-    if (showDepthContours) {
-        chartLayer.addTo(navMap);
-    } else if (navMap.hasLayer(chartLayer)) {
-        navMap.removeLayer(chartLayer);
-    }
-}
-window.toggleNauticalChartLayer = toggleNauticalChartLayer;
-window.toggleDepthContours = toggleNauticalChartLayer; // alias
-
 
 // Start GPS hardware tracking with immediate fallback and high accuracy
 function startGpsNavigation(isUserGesture = false) {
@@ -1902,14 +2515,14 @@ function handleGpsError(err) {
             } else if (err.code === 2) {
                 bannerText.textContent = 'Iskanje GPS satelitov (preverite pogled v nebo)...';
             } else if (err.code === 3) {
-                bannerText.textContent = 'Časovna omejitev GPS signala';
+                bannerText.textContent = '�asovna omejitev GPS signala';
             } else {
                 bannerText.textContent = 'Napaka pri branju GPS podatkov';
             }
         }
         if (toggleBtn) {
             toggleBtn.style.display = 'inline-block';
-            toggleBtn.textContent = (err.code === 1) ? 'Omogoči GPS' : 'Poskusi znova';
+            toggleBtn.textContent = (err.code === 1) ? 'Omogo�i GPS' : 'Poskusi znova';
         }
     }
 }
@@ -2191,10 +2804,10 @@ function updateWaypointRowsUI() {
                 <div class="waypoint-row ${isActive ? 'active' : ''}" onclick="setActiveWaypointTarget('${wp.id}')">
                     <span class="wp-icon intermediate-icon"><b>${idx + 1}</b></span>
                     <div class="wp-details">
-                        <span class="wp-label">Vmesna točka ${idx + 1}</span>
+                        <span class="wp-label">Vmesna to�ka ${idx + 1}</span>
                         <span class="wp-coord-text">${wp.label}</span>
                     </div>
-                    <button type="button" class="wp-action-btn delete-btn" onclick="removeWaypointRow('${wp.id}', event)" title="Izbriši točko">
+                    <button type="button" class="wp-action-btn delete-btn" onclick="removeWaypointRow('${wp.id}', event)" title="Izbri�i to�ko">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
                 </div>
@@ -2214,7 +2827,7 @@ function handleMapClickForWaypoint(lat, lon) {
 
     if (targetWp.type === 'start') {
         targetWp.isGps = false;
-        targetWp.label = `Začetek: ${formatted}`;
+        targetWp.label = `Za�etek: ${formatted}`;
     } else if (targetWp.type === 'dest') {
         targetWp.label = `Cilj: ${formatted}`;
     } else {
@@ -2262,7 +2875,7 @@ function updateWaypointMarkersOnMap() {
         });
 
         const marker = L.marker([wp.lat, wp.lon], { icon: icon }).addTo(navMap);
-        marker.bindPopup(`<b>${wp.type === 'start' ? 'Začetek' : wp.type === 'dest' ? 'Cilj' : 'Točka ' + idx}</b><br><small>${wp.lat.toFixed(4)}° N, ${wp.lon.toFixed(4)}° E</small>`);
+        marker.bindPopup(`<b>${wp.type === 'start' ? 'Za�etek' : wp.type === 'dest' ? 'Cilj' : 'To�ka ' + idx}</b><br><small>${wp.lat.toFixed(4)}� N, ${wp.lon.toFixed(4)}� E</small>`);
         waypointMarkers[wp.id] = marker;
     });
 }
@@ -2335,7 +2948,7 @@ function recalculateCurrentRoute() {
     }
 
     updateLiveRouteTelemetry();
-
+    updateNavigationGuidanceWidget(coords.latitude, coords.longitude, speedKnots, heading);
 }
 window.recalculateCurrentRoute = recalculateCurrentRoute;
 
@@ -2377,11 +2990,11 @@ function resetRouteTelemetryDisplay() {
     if (dtgKmEl) dtgKmEl.textContent = '-- km';
     if (ttgEl) ttgEl.textContent = '--';
     if (etaEl) etaEl.textContent = 'ETA: --:--';
-    if (brgEl) brgEl.textContent = '--°';
+    if (brgEl) brgEl.textContent = '--�';
     if (brgCardEl) brgCardEl.textContent = '--';
 }
 
-let plannedSpeedKnots = 6.0;
+// plannedSpeedKnots already declared
 
 function onPlannedSpeedChange() {
     const inputEl = document.getElementById('input-planned-speed');
@@ -2390,7 +3003,7 @@ function onPlannedSpeedChange() {
         if (!isNaN(val) && val > 0) {
             plannedSpeedKnots = val;
             updateLiveRouteTelemetry();
-
+    updateNavigationGuidanceWidget(coords.latitude, coords.longitude, speedKnots, heading);
         }
     }
 }
@@ -2525,7 +3138,7 @@ function startCruise() {
     const text = document.getElementById('cruise-btn-text');
     if (btn) btn.classList.add('active');
     if (icon) icon.className = 'fa-solid fa-stop';
-    if (text) text.textContent = 'Zaključi';
+    if (text) text.textContent = 'Zaklju�i';
 
     if (cruiseDurationTimer) clearInterval(cruiseDurationTimer);
     cruiseDurationTimer = setInterval(() => {
@@ -2551,14 +3164,14 @@ async function stopCruisePrompt() {
     const destLabel = (destWp && destWp.lat !== null) ? destWp.label : 'Prosta plovba';
 
     const saveConfirmed = confirm(
-        `PLOVBA ZAKLJUČENA\n` +
+        `PLOVBA ZAKLJU�ENA\n` +
         `-----------------------------\n` +
-        `• Relacija: ${destLabel}\n` +
-        `• Čas plovbe: ${formatDuration(sec)}\n` +
-        `• Prepluto: ${cruiseTotalDistanceNm.toFixed(2)} NM (${distKm} km)\n` +
-        `• Povprečna hitrost: ${avgSpeed.toFixed(1)} kt\n` +
-        `• Najvišja hitrost: ${cruiseMaxSpeedKnots.toFixed(1)} kt\n\n` +
-        `Ali želite to plovbo shraniti v Dnevnik plovb?`
+        `� Relacija: ${destLabel}\n` +
+        `� �as plovbe: ${formatDuration(sec)}\n` +
+        `� Prepluto: ${cruiseTotalDistanceNm.toFixed(2)} NM (${distKm} km)\n` +
+        `� Povpre�na hitrost: ${avgSpeed.toFixed(1)} kt\n` +
+        `� Najvi�ja hitrost: ${cruiseMaxSpeedKnots.toFixed(1)} kt\n\n` +
+        `Ali �elite to plovbo shraniti v Dnevnik plovb?`
     );
 
     if (saveConfirmed) {
@@ -2592,14 +3205,14 @@ function endCruiseState() {
     const speedRow = document.getElementById('planner-speed-row');
     if (speedRow) speedRow.style.display = 'flex';
     updateLiveRouteTelemetry();
-
+    updateNavigationGuidanceWidget(coords.latitude, coords.longitude, speedKnots, heading);
 
     const btn = document.getElementById('btn-cruise-toggle');
     const icon = document.getElementById('cruise-btn-icon');
     const text = document.getElementById('cruise-btn-text');
     if (btn) btn.classList.remove('active');
     if (icon) icon.className = 'fa-solid fa-play';
-    if (text) text.textContent = 'Začni';
+    if (text) text.textContent = 'Za�ni';
 
     if (activeMainTab !== 'navigacija') {
         stopGpsNavigation();
@@ -2680,7 +3293,7 @@ async function getAllCruisesFromIndexedDB() {
 }
 
 async function deleteCruiseFromIndexedDB(id) {
-    if (!confirm('Ali res želite izbrisati ta zapis iz dnevnika?')) return;
+    if (!confirm('Ali res �elite izbrisati ta zapis iz dnevnika?')) return;
     const db = await openNautikaDB();
     if (db) {
         await new Promise((resolve) => {
@@ -2732,11 +3345,11 @@ async function renderLogbook() {
         html += `
             <div class="logbook-item" onclick="drawLoggedCruiseOnMap('${item.id}')" title="Kliknite za prikaz poti na karti">
                 <div style="display:flex; flex-direction:column; gap:2px; flex:1;">
-                    <strong style="color:var(--text-primary); font-size:0.85rem;"><i class="fa-solid fa-ship" style="color:var(--accent-blue); margin-right:4px;"></i> ${item.destName || 'Plovba'}</strong>
-                    <span style="color:var(--text-secondary); font-size:0.72rem;">${item.date} • ${formatDuration(item.durationSec)}</span>
-                    <span style="color:var(--text-primary); font-size:0.75rem; font-weight:600;">${item.distanceNm.toFixed(2)} NM (${distKm} km) • Ø ${item.avgSpeedKnots.toFixed(1)} kt • MAX ${(item.maxSpeedKnots || 0).toFixed(1)} kt</span>
+                    <strong style="color:var(--text-primary); font-size:0.85rem;"><i class="fa-solid fa-shŠčip" style="color:var(--accent-blue); margin-right:4px;"></i> ${item.destName || 'Plovba'}</strong>
+                    <span style="color:var(--text-secondary); font-size:0.72rem;">${item.date} � ${formatDuration(item.durationSec)}</span>
+                    <span style="color:var(--text-primary); font-size:0.75rem; font-weight:600;">${item.distanceNm.toFixed(2)} NM (${distKm} km) � O ${item.avgSpeedKnots.toFixed(1)} kt � MAX ${(item.maxSpeedKnots || 0).toFixed(1)} kt</span>
                 </div>
-                <button type="button" class="logbook-item-btn" onclick="event.stopPropagation(); deleteCruiseFromIndexedDB('${item.id}')" title="Izbriši zapis">
+                <button type="button" class="logbook-item-btn" onclick="event.stopPropagation(); deleteCruiseFromIndexedDB('${item.id}')" title="Izbri�i zapis">
                     <i class="fa-solid fa-trash-can"></i>
                 </button>
             </div>
@@ -2783,7 +3396,7 @@ async function drawLoggedCruiseOnMap(id) {
         iconAnchor: [10, 10]
     });
 
-    const mStart = L.marker(startPt, { icon: startIcon }).addTo(navMap).bindPopup(`<b>Začetek plovbe</b><br>${cruise.date}`);
+    const mStart = L.marker(startPt, { icon: startIcon }).addTo(navMap).bindPopup(`<b>Za�etek plovbe</b><br>${cruise.date}`);
     const mEnd = L.marker(endPt, { icon: endIcon }).addTo(navMap).bindPopup(`<b>Konec plovbe</b><br>${cruise.distanceNm.toFixed(2)} NM`);
     navPastCruiseMarkers.push(mStart, mEnd);
 
@@ -2866,7 +3479,7 @@ function updateGpsUI(pos) {
     } else if (heading !== null && !isNaN(heading) && heading >= 0) {
         lastGpsHeading = heading;
         if (headingDegEl) {
-            headingDegEl.textContent = `${Math.round(heading)}°`;
+            headingDegEl.textContent = `${Math.round(heading)}�`;
             headingDegEl.classList.remove('status-text');
         }
         if (headingCardEl) {
@@ -2874,7 +3487,7 @@ function updateGpsUI(pos) {
         }
     } else if (lastGpsHeading !== null) {
         if (headingDegEl) {
-            headingDegEl.textContent = `${Math.round(lastGpsHeading)}°`;
+            headingDegEl.textContent = `${Math.round(lastGpsHeading)}�`;
             headingDegEl.classList.remove('status-text');
         }
         if (headingCardEl) {
@@ -2959,7 +3572,7 @@ function updateGpsUI(pos) {
 
     // 6. ROUTE TELEMETRY UPDATE
     updateLiveRouteTelemetry();
-
+    updateNavigationGuidanceWidget(coords.latitude, coords.longitude, speedKnots, heading);
 }
 
 // Pause GPS & orientation on app minimize/background and resume when foregrounded (keeps running if cruise recording is active)
@@ -3009,11 +3622,12 @@ function updateNavigationGuidanceWidget(boatLat, boatLon, currentSogKnots, curre
     // Find the next target waypoint along currentCalculatedRouteCoords
     let targetBearing = null;
     if (currentCalculatedRouteCoords && currentCalculatedRouteCoords.length > 0) {
+        // Find next point ahead of boat
         let targetPt = null;
         for (let i = 0; i < currentCalculatedRouteCoords.length; i++) {
             const pt = currentCalculatedRouteCoords[i];
             const d = haversineDistanceMeters(boatLat, boatLon, pt[0], pt[1]);
-            if (d > 25) { // Target point at least 25m ahead
+            if (d > 25) { // More than 25m ahead
                 targetPt = pt;
                 break;
             }
@@ -3027,8 +3641,9 @@ function updateNavigationGuidanceWidget(boatLat, boatLon, currentSogKnots, curre
     }
 
     if (targetBearing === null) {
+        // Fallback to destination waypoint
         const destWp = routeWaypoints.find(w => w.type === 'dest');
-        if (destWp && destWp.lat !== undefined && destWp.lat !== null && destWp.lon !== undefined && destWp.lon !== null) {
+        if (destWp && destWp.lat !== undefined && destWp.lon !== undefined) {
             targetBearing = calculateBearing(boatLat, boatLon, destWp.lat, destWp.lon);
         }
     }
@@ -3040,7 +3655,8 @@ function updateNavigationGuidanceWidget(boatLat, boatLon, currentSogKnots, curre
     }
     const absDelta = Math.abs(relDelta);
 
-    // Determine status color: <= 5 deg Green, <= 30 deg Yellow, > 30 deg Red
+    // Determine status color based on relative deviation
+    // <= 5 deg -> Green, <= 30 deg -> Yellow/Amber, > 30 deg -> Red
     let statusColor = '#22c55e'; // Green
     if (absDelta > 30) {
         statusColor = '#ef4444'; // Red
@@ -3054,13 +3670,13 @@ function updateNavigationGuidanceWidget(boatLat, boatLon, currentSogKnots, curre
         ringEl.setAttribute('stroke', isMoving ? statusColor : '#ffffff');
     }
 
-    // Outer Rim Marker Pip: Shows GPS course / top orientation
+    // Outer Rim Marker PŠčip: Shows GPS course during motion, top of phone / orientation during stationary
     const rimMarker = document.getElementById('guidance-rim-marker');
     if (rimMarker) {
         rimMarker.style.transform = 'rotate(0deg)';
-        const rimPip = document.getElementById('guidance-rim-pip');
-        if (rimPip) {
-            rimPip.setAttribute('fill', isMoving ? statusColor : '#ffffff');
+        const rimPŠčip = document.getElementById('guidance-rim-pŠčip');
+        if (rimPŠčip) {
+            rimPŠčip.setAttribute('fill', isMoving ? statusColor : '#ffffff');
         }
     }
 
@@ -3077,11 +3693,419 @@ function updateNavigationGuidanceWidget(boatLat, boatLon, currentSogKnots, curre
     if (deltaTextEl) {
         deltaTextEl.style.color = statusColor;
         if (absDelta <= 2) {
-            deltaTextEl.textContent = '\u2713 0\u00B0';
+            deltaTextEl.textContent = '? 0�';
         } else if (relDelta > 0) {
-            deltaTextEl.textContent = `${Math.round(absDelta)}\u00B0 \u25B6`;
+            deltaTextEl.textContent = `${Math.round(absDelta)}� ?`;
         } else {
-            deltaTextEl.textContent = `\u25C0 ${Math.round(absDelta)}\u00B0`;
+            deltaTextEl.textContent = `? ${Math.round(absDelta)}�`;
         }
     }
 }
+
+
+// Official Nautical Chart Feature Datasets (ENC / IHO S-52 Standard)
+// 1. Unobtrusive Depth Soundings (Drobne, nemoteče poševne številke globin po uradnih hidrografskih kartah)
+const NAUTICAL_SOUNDINGS = [
+    // Koprski zaliv & Debeli rtič
+    { lat: 45.5925, lon: 13.6980, depth: '1.6', name: 'Greben Debeli rtič' },
+    { lat: 45.5960, lon: 13.7080, depth: '3.8', name: 'Debeli rtič V' },
+    { lat: 45.5880, lon: 13.7050, depth: '4.5', name: 'Valdoltra pličina' },
+    { lat: 45.5820, lon: 13.7140, depth: '6.2', name: 'Valdoltra zaliv' },
+    { lat: 45.5740, lon: 13.7250, depth: '7.5', name: 'Ankaran zaliv' },
+    { lat: 45.5650, lon: 13.7200, depth: '12.0', name: 'Luka Koper zunanji bazen' },
+    { lat: 45.5560, lon: 13.7220, depth: '14.5', name: 'Luka Koper plovni kanal' },
+    { lat: 45.5490, lon: 13.7170, depth: '4.2', name: 'Koper Mandrač vhod' },
+    { lat: 45.5485, lon: 13.7050, depth: '2.4', name: 'Žusterna' },
+    { lat: 45.5550, lon: 13.6950, depth: '9.8', name: 'Koprski zaliv - Rex' },
+    { lat: 45.5680, lon: 13.6800, depth: '18.5', name: 'Koprski zaliv sredina' },
+    { lat: 45.5800, lon: 13.6600, depth: '20.2', name: 'Koprski zaliv zahod' },
+
+    // Izola & Rt Ronek
+    { lat: 45.5440, lon: 13.6760, depth: '6.5', name: 'Viližan' },
+    { lat: 45.5460, lon: 13.6520, depth: '5.2', name: 'Izola severni greben' },
+    { lat: 45.5420, lon: 13.6560, depth: '3.8', name: 'Izola marina vhod' },
+    { lat: 45.5390, lon: 13.6420, depth: '3.1', name: 'Simonov zaliv' },
+    { lat: 45.5410, lon: 13.6260, depth: '8.5', name: 'Bele skale' },
+    { lat: 45.5430, lon: 13.6050, depth: '14.2', name: 'Rt Ronek klif' },
+    { lat: 45.5490, lon: 13.6300, depth: '16.5', name: 'Pred Izolo odprto' },
+    { lat: 45.5550, lon: 13.6000, depth: '21.0', name: 'Severno od Roneka' },
+
+    // Strunjanski zaliv & Fiesa
+    { lat: 45.5370, lon: 13.6000, depth: '6.8', name: 'Mesečev zaliv' },
+    { lat: 45.5340, lon: 13.5960, depth: '2.8', name: 'Strunjan soline' },
+    { lat: 45.5360, lon: 13.5850, depth: '11.2', name: 'Strunjanski zaliv sredina' },
+    { lat: 45.5290, lon: 13.5820, depth: '5.0', name: 'Pacug' },
+    { lat: 45.5300, lon: 13.5720, depth: '6.2', name: 'Fiesa zaliv' },
+    { lat: 45.5380, lon: 13.5650, depth: '18.0', name: 'Severno od Fiese' },
+
+    // Piran & Bernardin
+    { lat: 45.5295, lon: 13.5615, depth: '2.1', name: 'Punta Piran greben' },
+    { lat: 45.5320, lon: 13.5590, depth: '7.5', name: 'Punta Piran bojna linija' },
+    { lat: 45.5270, lon: 13.5660, depth: '4.8', name: 'Piran mandrač' },
+    { lat: 45.5220, lon: 13.5620, depth: '9.5', name: 'Jugozahodno od Pirana' },
+    { lat: 45.5160, lon: 13.5680, depth: '5.5', name: 'Bernardin pomol' },
+    { lat: 45.5140, lon: 13.5750, depth: '6.8', name: 'Portoroški zaliv sever' },
+
+    // Piranski zaliv, Portorož & Seča
+    { lat: 45.5130, lon: 13.5820, depth: '2.6', name: 'Portorož centralna plaža' },
+    { lat: 45.5040, lon: 13.5900, depth: '3.5', name: 'Marina Portorož vhod' },
+    { lat: 45.4975, lon: 13.5840, depth: '2.2', name: 'Rt Seča greben' },
+    { lat: 45.4880, lon: 13.5900, depth: '1.8', name: 'Krajinski park Sečovlje vhod' },
+    { lat: 45.4950, lon: 13.5780, depth: '7.2', name: 'Piranski zaliv jug' },
+    { lat: 45.5050, lon: 13.5650, depth: '12.4', name: 'Piranski zaliv sredina' },
+    { lat: 45.5120, lon: 13.5480, depth: '16.8', name: 'Piranski zaliv zahod' },
+    { lat: 45.4900, lon: 13.5600, depth: '14.5', name: 'Pred Savudrijo / meja' },
+
+    // Odprto morje / Globoke vode (18-32m)
+    { lat: 45.6050, lon: 13.6600, depth: '22.5', name: 'Tržaški zaliv - sever' },
+    { lat: 45.5800, lon: 13.6200, depth: '24.8', name: 'Odprto morje KP-PI' },
+    { lat: 45.5600, lon: 13.5600, depth: '26.5', name: 'Odprto morje pred Ronekom' },
+    { lat: 45.5450, lon: 13.5350, depth: '28.2', name: 'Odprto morje pred Piranom' },
+    { lat: 45.5250, lon: 13.5200, depth: '31.5', name: 'Odprto morje globoko' },
+    { lat: 45.5000, lon: 13.5100, depth: '32.0', name: 'Odprto morje JZ' }
+];
+
+// 2. Dangerous Obstructions, Shoals & Reefs (Nevarne ovire, čeri in plitvine s črtkano mejo)
+const NAUTICAL_HAZARDS = [
+    {
+        name: 'Greben Debeli rtič',
+        type: 'Plitvina & skalni greben',
+        badge: '< 1.5 m',
+        center: [45.5925, 13.6965],
+        coords: [
+            [45.5940, 13.6950], [45.5920, 13.6930],
+            [45.5890, 13.6960], [45.5910, 13.7010],
+            [45.5940, 13.6950]
+        ],
+        desc: 'Nevaren plitev skalnati greben pred Debelim rtičem. Globina manj kot 1.5 m.'
+    },
+    {
+        name: 'Greben Punta Piran',
+        type: 'Podvodni greben & čeri',
+        badge: '< 2.0 m',
+        center: [45.5295, 13.5605],
+        coords: [
+            [45.5310, 13.5610], [45.5290, 13.5585],
+            [45.5275, 13.5605], [45.5285, 13.5630],
+            [45.5310, 13.5610]
+        ],
+        desc: 'Podvodne čeri in plitvina, ki se razteza z rta Punta Piran. Prepovedana plovba v neposredni bližini rta.'
+    },
+    {
+        name: 'Čeri pod klifom Rt Ronek',
+        type: 'Podvodne skale & klif',
+        badge: 'Čeri',
+        center: [45.5425, 13.6070],
+        coords: [
+            [45.5440, 13.6120], [45.5425, 13.6020],
+            [45.5395, 13.5990], [45.5410, 13.6140],
+            [45.5440, 13.6120]
+        ],
+        desc: 'Skalne podvodne čeri in krušenje pod flišnim klifom Ronek v Krajinskem parku Strunjan.'
+    },
+    {
+        name: 'Plitvina Rt Seča',
+        type: 'Plitvina & solinski nasip',
+        badge: '< 1.2 m',
+        center: [45.4960, 13.5825],
+        coords: [
+            [45.4985, 13.5830], [45.4960, 13.5790],
+            [45.4920, 13.5820], [45.4950, 13.5860],
+            [45.4985, 13.5830]
+        ],
+        desc: 'Izrazita blatna plitvina na vhodu v kanal sv. Jerneja in Sečoveljske soline.'
+    }
+];
+
+// 3. Official Shipwrecks (Potopljene ladje in razbitine)
+const NAUTICAL_WRECKS = [
+    {
+        lat: 45.5489,
+        lon: 13.6920,
+        name: 'Razbitina SS Rex',
+        type: 'Čezoceanska potopljena ladja (1944)',
+        depth: '8 – 11 m',
+        desc: 'Največja italijanska čezoceanska potniška ladja Rex, potopljena 8. septembra 1944. Podvodno arheološko najdišče in nevarnost za sidranje.'
+    },
+    {
+        lat: 45.5312,
+        lon: 13.5580,
+        name: 'Razbitina tovorne ladje pred Piranom',
+        type: 'Potopljena razbitina',
+        depth: '12 – 14 m',
+        desc: 'Potopljeni ostanki tovorne ladje severozahodno od Punte Piran. Prepovedano sidranje.'
+    },
+    {
+        lat: 45.5185,
+        lon: 13.5615,
+        name: 'Potopljena razbitina v Piranskem zalivu',
+        type: 'Podvodna ovira',
+        depth: '10 m',
+        desc: 'Potopljena lesena barkasa / ovira na morskem dnu.'
+    }
+];
+
+// 4. Submarine Pipelines and Cables (Podmorski izpusti in kabli z uradnimi vijoličnimi črtkanimi linijami)
+const NAUTICAL_PIPELINES_CABLES = [
+    {
+        name: 'Podmorski izpust CKČN Piran (3.5 km)',
+        type: 'Podvodni kanalizacijski cevovod',
+        color: '#c026d3', // Official nautical magenta
+        dashArray: '8, 6',
+        coords: [
+            [45.5285, 13.5650],
+            [45.5340, 13.5530],
+            [45.5410, 13.5410],
+            [45.5460, 13.5320]
+        ],
+        desc: 'Glavni podmorski izpust Centralne čistilne naprave Piran dolžine 3,5 km. Na koncu sta nameščena globokomorska difuzorja. Prepovedano sidranje in ribolov z vlečnimi mrežami.'
+    },
+    {
+        name: 'Podmorski izpust CČN Koper',
+        type: 'Podvodni izpust čistilne naprave',
+        color: '#c026d3',
+        dashArray: '8, 6',
+        coords: [
+            [45.5495, 13.7080],
+            [45.5580, 13.6950],
+            [45.5660, 13.6820]
+        ],
+        desc: 'Podmorski izpust komunalne čistilne naprave Koper v Koprski zaliv. Prepovedano sidranje.'
+    },
+    {
+        name: 'Podvodni komunikacijski kabel Piranski zaliv',
+        type: 'Podvodni elektro/komunikacijski kabel',
+        color: '#9333ea',
+        dashArray: '4, 6',
+        coords: [
+            [45.5150, 13.5680],
+            [45.5060, 13.5550],
+            [45.4980, 13.5420]
+        ],
+        desc: 'Podvodni energetski in komunikacijski kabel na morskem dnu.'
+    }
+];
+
+// 5. Mariculture / Shellfish & Fish Farming Restricted Zones
+const NAUTICAL_MARICULTURE = [
+    {
+        name: 'Školjčišče Debeli rtič (sv. Jernej)',
+        type: 'Marikultura - školjčišče',
+        center: [45.5870, 13.7080],
+        coords: [
+            [45.5890, 13.7060], [45.5850, 13.7100],
+            [45.5840, 13.7060], [45.5880, 13.7020],
+            [45.5890, 13.7060]
+        ],
+        desc: 'Zavarovano območje gojenja šškoljk. Označeno z rumenimi specialnimi navigacijskimi bojami. Prepovedana plovba in sidranje med vrvmi.'
+    },
+    {
+        name: 'Školjčišče Strunjan',
+        type: 'Marikultura - školjčišče',
+        center: [45.5340, 13.5980],
+        coords: [
+            [45.5355, 13.5960], [45.5325, 13.6000],
+            [45.5315, 13.5970], [45.5345, 13.5930],
+            [45.5355, 13.5960]
+        ],
+        desc: 'Gojišče šškoljk v Strunjanskem zalivu. Prepovedano sidranje.'
+    },
+    {
+        name: 'Ribogojnica & školjčišče Fonda (Seča)',
+        type: 'Marikultura - ribogojnica in školjčišče',
+        center: [45.4930, 13.5800],
+        coords: [
+            [45.4955, 13.5780], [45.4905, 13.5820],
+            [45.4895, 13.5780], [45.4945, 13.5740],
+            [45.4955, 13.5780]
+        ],
+        desc: 'Morska ribogojnica piranskega brancina in školjčišče Fonda. Zavarovano območje z rumenimi navigacijskimi bojami.'
+    }
+];
+
+function buildNauticalChartLayer() {
+    if (nauticalChartLayerGroup) return nauticalChartLayerGroup;
+    nauticalChartLayerGroup = L.layerGroup([]);
+
+    // 1. Unobtrusive Depth Soundings (Crisp, italicized numbers directly on water)
+    NAUTICAL_SOUNDINGS.forEach(snd => {
+        const icon = L.divIcon({
+            className: 'nautical-sounding-divicon',
+            html: `<div class="nautical-sounding-num">${snd.depth}</div>`,
+            iconSize: [28, 16],
+            iconAnchor: [14, 8]
+        });
+        const marker = L.marker([snd.lat, snd.lon], { icon: icon });
+        marker.bindPopup(`<b>Globina: ${snd.depth} m</b><br><small>${snd.name}</small>`);
+        nauticalChartLayerGroup.addLayer(marker);
+    });
+
+    // 2. Dangerous Obstructions, Shoals & Reefs (Dashed perimeters with hazard badges)
+    NAUTICAL_HAZARDS.forEach(haz => {
+        const poly = L.polygon(haz.coords, {
+            color: '#ef4444',
+            weight: 2,
+            dashArray: '5, 5',
+            fillColor: '#ef4444',
+            fillOpacity: 0.12
+        });
+        poly.bindPopup(`<b><i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> ${haz.name}</b><br>Tip: <b>${haz.type}</b><br>${haz.desc}`);
+        nauticalChartLayerGroup.addLayer(poly);
+
+        // Center danger badge
+        const hazIcon = L.divIcon({
+            className: 'nautical-hazard-divicon',
+            html: `<div class="nautical-hazard-badge">${haz.badge}</div>`,
+            iconSize: [52, 18],
+            iconAnchor: [26, 9]
+        });
+        const hazMarker = L.marker(haz.center, { icon: hazIcon });
+        hazMarker.bindPopup(`<b>${haz.name}</b><br>${haz.desc}`);
+        nauticalChartLayerGroup.addLayer(hazMarker);
+    });
+
+    // 3. Official Shipwrecks (Razbitine)
+    NAUTICAL_WRECKS.forEach(wrk => {
+        const wreckIconHtml = `
+            <div class="nautical-wreck-marker" title="${wrk.name}">
+                <svg viewBox="0 0 32 32" width="26" height="26">
+                    <circle cx="16" cy="16" r="14" fill="rgba(15, 23, 42, 0.75)" stroke="#ef4444" stroke-width="2" stroke-dasharray="3, 3"/>
+                    <line x1="8" y1="16" x2="24" y2="16" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+                    <line x1="11" y1="12" x2="11" y2="20" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+                    <line x1="16" y1="10" x2="16" y2="22" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="21" y1="12" x2="21" y2="20" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+                    <line x1="13" y1="9" x2="19" y2="9" stroke="#ef4444" stroke-width="1.8"/>
+                </svg>
+            </div>
+        `;
+        const wrkIcon = L.divIcon({
+            className: 'nautical-wreck-divicon',
+            html: wreckIconHtml,
+            iconSize: [26, 26],
+            iconAnchor: [13, 13]
+        });
+        const m = L.marker([wrk.lat, wrk.lon], { icon: wrkIcon });
+        m.bindPopup(`
+            <div style="font-size:0.85rem;">
+                <b style="color:#ef4444;"><i class="fa-solid fa-anchor"></i> ${wrk.name}</b><br>
+                <span>Tip: <b>${wrk.type}</b></span><br>
+                <span>Globina: <b>${wrk.depth}</b></span><br>
+                <p style="margin:4px 0 0 0; font-size:0.75rem; color:#475569;">${wrk.desc}</p>
+            </div>
+        `);
+        nauticalChartLayerGroup.addLayer(m);
+    });
+
+    // 4. Submarine Pipelines & Cables (Magenta dashed lines)
+    NAUTICAL_PIPELINES_CABLES.forEach(pipe => {
+        const line = L.polyline(pipe.coords, {
+            color: pipe.color,
+            weight: 2.5,
+            dashArray: pipe.dashArray,
+            opacity: 0.95
+        });
+        line.bindPopup(`
+            <div style="font-size:0.85rem;">
+                <b style="color:${pipe.color};"><i class="fa-solid fa-bolt"></i> ${pipe.name}</b><br>
+                <span>Tip: <b>${pipe.type}</b></span><br>
+                <p style="margin:4px 0 0 0; font-size:0.75rem; color:#475569;">${pipe.desc}</p>
+            </div>
+        `);
+        nauticalChartLayerGroup.addLayer(line);
+
+        // Diffuser / End Point Marker
+        const endPt = pipe.coords[pipe.coords.length - 1];
+        const endIcon = L.divIcon({
+            className: 'nautical-pipe-end-divicon',
+            html: `<div style="width:10px; height:10px; border-radius:50%; background:${pipe.color}; border:2px solid #ffffff; box-shadow:0 0 6px ${pipe.color};"></div>`,
+            iconSize: [10, 10],
+            iconAnchor: [5, 5]
+        });
+        const endMarker = L.marker(endPt, { icon: endIcon });
+        endMarker.bindPopup(`<b>Konec izpusta / difuzor</b><br>${pipe.name}`);
+        nauticalChartLayerGroup.addLayer(endMarker);
+    });
+
+    // 5. Mariculture / Shellfish & Fish Farming Zones
+    NAUTICAL_MARICULTURE.forEach(mari => {
+        const poly = L.polygon(mari.coords, {
+            color: '#f59e0b',
+            weight: 2,
+            dashArray: '6, 6',
+            fillColor: '#f59e0b',
+            fillOpacity: 0.15
+        });
+        poly.bindPopup(`<b><i class="fa-solid fa-fish" style="color:#f59e0b;"></i> ${mari.name}</b><br>${mari.desc}`);
+        nauticalChartLayerGroup.addLayer(poly);
+
+        // Yellow Special Buoy Marker
+        const buoyIcon = L.divIcon({
+            className: 'nautical-buoy-divicon',
+            html: `<div style="display:flex; align-items:center; gap:3px; background:rgba(245,158,11,0.9); color:#000000; font-weight:800; font-size:9px; padding:1px 5px; border-radius:4px; border:1px solid #ffffff; box-shadow:0 2px 5px rgba(0,0,0,0.4);"><i class="fa-solid fa-xmark"></i> MARIKULTURA</div>`,
+            iconSize: [85, 18],
+            iconAnchor: [42, 9]
+        });
+        const buoyMarker = L.marker(mari.center, { icon: buoyIcon });
+        buoyMarker.bindPopup(`<b>${mari.name}</b><br>${mari.desc}`);
+        nauticalChartLayerGroup.addLayer(buoyMarker);
+    });
+
+    return nauticalChartLayerGroup;
+}
+
+// Toggle Nautical Chart Layer (Soundings, Wrecks, Pipelines, Hazards)
+function toggleNauticalChartLayer() {
+    if (!navMap) initNavMap();
+    showDepthContours = !showDepthContours;
+    const btn = document.getElementById('pill-layer-depth');
+    if (btn) btn.classList.toggle('active', showDepthContours);
+
+    const chartLayer = buildNauticalChartLayer();
+    if (showDepthContours) {
+        chartLayer.addTo(navMap);
+    } else if (navMap.hasLayer(chartLayer)) {
+        navMap.removeLayer(chartLayer);
+    }
+}
+window.toggleNauticalChartLayer = toggleNauticalChartLayer;
+window.toggleDepthContours = toggleNauticalChartLayer; // alias
+
+
+// =========================================================================
+// SECTION 4: APP INITIALIZATION LIFECYCLE
+// =========================================================================
+document.addEventListener('DOMContentLoaded', () => {
+    // 1. Theme initialization
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-theme');
+    }
+    updateThemeIcon();
+
+    // 2. Tab switcher buttons
+    const btnTides = document.getElementById('btn-tab-tides');
+    const btnWeather = document.getElementById('btn-tab-weather');
+    const btnNav = document.getElementById('btn-tab-nav');
+
+    if (btnTides) btnTides.addEventListener('click', () => setActiveMainTab('plimovanje'));
+    if (btnWeather) btnWeather.addEventListener('click', () => setActiveMainTab('vreme'));
+    if (btnNav) btnNav.addEventListener('click', () => setActiveMainTab('navigacija'));
+
+    // 3. Compass tap-to-center
+    const compassContainer = document.getElementById('compass-container');
+    if (compassContainer) {
+        compassContainer.addEventListener('click', () => {
+            if (lastGpsCoords && navMap) {
+                navMap.setView([lastGpsCoords.latitude, lastGpsCoords.longitude], Math.max(navMap.getZoom(), 15));
+            }
+        });
+    }
+
+    // 4. Start clock and load live data
+    setInterval(updateClock, 1000);
+    refreshData();
+
+    // 5. Default tab
+    setActiveMainTab('plimovanje');
+});
+
